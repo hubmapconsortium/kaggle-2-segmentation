@@ -1,0 +1,54 @@
+{
+    "train":{
+        "amp": true,
+        "fold":0,
+        "encoder":"coat_lite_medium",
+        "checkpoint":"coat_lite_medium_1472_e42",
+        "batch_size":6,
+        "pretrained":true,
+        "checkpoint_path":"",
+        "continue_best":false,
+        "epoches":100,
+        "img_size":768
+    },
+    "predict":{
+        "data_dir":"k2-validation/k2-validation/",
+        "models_folder":"weights",
+        "models_folder1":"weights",
+        "models_folder2":"weights",
+        "output_csv_path":"submission.csv",
+        "model_ckpt":"./weights/coat_lite_medium_384x384_f9129688.pth",
+        "test_batch_size":3,
+        "resolution":2048,
+        "test_df":"/u/athbagde/hubmap_solution_victor/test_2.csv",
+        "pad_size":256,
+        "csv_path":"k2-validation/k2-validation/hickey_test.csv"
+        
+    },
+    "pred_val":{
+        "models_folder":"weights",
+        "models_folder1":"weights",
+        "folds_csv_path":"folds.csv",
+        "masks_dir":"masks",
+        "data_dir":"train_images",
+        "test_dir":"test_images",
+        "out_dir":"train_pred_oof"
+
+    },
+    "pred_ext":{
+        "models_folder":"weights",
+        "models_folder1":"weights",
+        "data_dir":"external_images",
+        "out_dir":"external_pred",
+        "out_file":"external.csv"
+    },
+    "pt_models":{
+        "ckpt_path":"./weights/coat_lite_medium_384x384_f9129688.pth",
+        "pt_model_name":"resnet34"
+    },
+    "hpa_dwnld":{
+        "out_dir":"hpa_images_extra",
+        "request_api":"https://www.proteinatlas.org/api/search_download.php?search=&columns=g&compress=no&format=tsv",
+        "output_csv":"./hpa_unlabeled.csv"
+    }
+}
