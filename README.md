@@ -3,9 +3,10 @@ Segmentation pipeline for multiple Functional Tissue Units (FTUs) based on code 
 
 Added support for WSI images.
 Dockerized the inference script
-Instructions for preparing docker file, building and running it can be found in the pdf files above
 
-Packaging the K2 inference script docker
+Let me show the steps tp package the inference script from above codebase into a docker.
+
+**Packaging the K2 inference script docker**
 1. Base image:
 
     a. Use a nvidia cuda image as a base image.
@@ -15,33 +16,50 @@ Packaging the K2 inference script docker
     c. The CUDA version that worked for pytorch 1.13 was 11.5
 2. System packages:
 
-  a. Always update the apt-get package first
+    a. Always update the apt-get package first
   
-  b. Then install the following packages in the same command:
+    b. Then install the following packages in the same command:
   
-    libblas-dev
-    liblapack-dev
-    ffmpeg
-    libsm6
-    libxext6
-    gfortan
-    git
-    python3
-    python3-dev
-    python3-pip
-  c. The first 2 packages are required for installing correctly and creating wheels for the
+        libblas-dev
+        liblapack-dev
+        ffmpeg
+        libsm6
+        libxext6
+        gfortan
+        git
+        python3
+        python3-dev
+        python3-pip
+    
+   c. The first 2 packages are required for installing correctly and creating wheels for the
      spams package.
-  d. System packages 3-6 are necessary for correct installation of opencv-python packages.
+     
+   d. System packages 3-6 are necessary for correct installation of opencv-python packages.
 3. Python packages:
-  a. Install the pytorch package separately as it has a complex installation.
-  b. All the required packages are listed in the requirements.txt
-4. Prediction files:
-  a. Copy the prediction files from the k2_inf folder into the container.
-  b. Model weights and data files are not present on github due to size constraints. (Can be downloaded from *get link from Yash*)
-  c. Model weights are in the .pb format and image data supported are: ome-tiff, tiff, png and jpeg.
 
-Building and running the docker container
+    a. Install the pytorch package separately as it has a complex installation.
+  
+    b. All the required packages are listed in the requirements.txt
+  
+4. Prediction files:
+
+    a. Copy the prediction script files from the k2_inf folder into the container.
+  
+    b. Model weights and data files are not present on github due to size constraints. (Can be downloaded from *https://doi.org/10.5281/zenodo.7545793*)
+  
+    c. Model weights are in the .pb format and image data supported are: ome-tiff, tiff, png and jpeg.
+    
+    d. The model input locations and output locations along with other configurations can be accessed and changed via the conifg.json file
+    
+    
+    
+    
+    
+
+**Building and running the docker container**
+
 Steps to build the docker image:
+
 1. Navigate into the docker folder
 2. Build docker using following command:
 docker build -f Dockerfile.v2 --network=host .
