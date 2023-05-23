@@ -31,7 +31,8 @@ a. Install the pytorch package separately as it has a complex installation.
 b. All the required packages are listed in the requirements.txt
 4. Prediction files:
 a. Copy the prediction files from the k2_inf folder into the container.
-b. Model weights and date files are not present on github due to size constraints. (Can be downloaded from *get link from Yash*)
+b. Model weights and data files are not present on github due to size constraints. (Can be downloaded from *get link from Yash*)
+c. Model weights are in the .pb format and image data supported are: ome-tiff, tiff, png and jpeg.
 
 Building and running the docker container
 Steps to build the docker image:
