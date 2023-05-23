@@ -7,22 +7,28 @@ Instructions for preparing docker file, building and running it can be found in 
 
 Packaging the K2 inference script docker
 1. Base image:
-  a. Use a nvidia cuda image as a base image.
-  b. Ensure to use the devel version for further building the docker image on it.
-  c. The CUDA version that worked for pytorch 1.13 was 11.5
+
+    a. Use a nvidia cuda image as a base image.
+    
+    b. Ensure to use the devel version for further building the docker image on it.
+    
+    c. The CUDA version that worked for pytorch 1.13 was 11.5
 2. System packages:
+
   a. Always update the apt-get package first
+  
   b. Then install the following packages in the same command:
-    i. libblas-dev
-    ii. liblapack-dev
-    iii. ffmpeg
-    iv. libsm6
-    v. libxext6
-    vi. gfortan
-    vii. git
-    viii. python3
-    ix. python3-dev
-    x. python3-pip
+  
+    libblas-dev
+    liblapack-dev
+    ffmpeg
+    libsm6
+    libxext6
+    gfortan
+    git
+    python3
+    python3-dev
+    python3-pip
   c. The first 2 packages are required for installing correctly and creating wheels for the
      spams package.
   d. System packages 3-6 are necessary for correct installation of opencv-python packages.
