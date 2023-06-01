@@ -60,8 +60,8 @@ Let me show the steps tp package the inference script from above codebase into a
 
 Steps to build the docker image:
 
-1. Navigate into the docker folder
-2. Build docker using following command: `docker build -f Dockerfile.v2 --network=host .`
+1. Navigate into `hra-multiftu-segmentation-pipeline` directory.
+2. Build docker using following command: `docker build -f docker/Dockerfile.v2 --network=host .`
 3. Keep the `–netwrok=host` parameter to enable internet connection inside the
 docker container.
 4. Find the docker image id using:
