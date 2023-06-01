@@ -18,7 +18,7 @@ RUN apt-get update \
     python3-pip \
  && rm -rf /var/cache/apt/*
 
-COPY requirements.txt .
+COPY docker/requirements.txt .
 RUN pip3 install --upgrade pip
 RUN pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
 RUN pip3 install -r requirements.txt \
