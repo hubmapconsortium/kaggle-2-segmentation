@@ -61,21 +61,20 @@ Let me show the steps tp package the inference script from above codebase into a
 Steps to build the docker image:
 
 1. Navigate into the docker folder
-2. Build docker using following command:
-docker build -f Dockerfile.v2 --network=host .
-3. Keep the –netwrok=host parameter to enable internet connection inside the
+2. Build docker using following command: `docker build -f Dockerfile.v2 --network=host .`
+3. Keep the `–netwrok=host` parameter to enable internet connection inside the
 docker container.
 4. Find the docker image id using:
-docker image ls
+`docker image ls`
 5. Run the docker container with the image_id using :
-docker run --gpus all -dit “image_id”
-6. Use –gpus parameter to dedicate gpus to the docker container and pass the -dit
+`docker run --gpus all -dit “image_id”`
+6. Use `–-gpus` parameter to dedicate gpus to the docker container and pass the `-dit`
 parameter to let the docker container running until we exit it
 7. Get the docker container id using:
-docker ps -a
+`docker ps -a`
 8. Attach the docker container to run prediction file:
-docker attach “container_id”
+`docker attach “container_id”`
 9. Run the prediction file:
-python3 predict_2.py
+`python3 predict_2.py`
 
 
