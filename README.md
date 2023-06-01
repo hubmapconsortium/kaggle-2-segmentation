@@ -61,20 +61,12 @@ Let me show the steps tp package the inference script from above codebase into a
 Steps to build the docker image:
 
 1. Navigate into `hra-multiftu-segmentation-pipeline` directory.
-2. Build docker using following command: `docker build -f docker/Dockerfile.v2 --network=host .`
+2. Build docker using following command: `docker build -f docker/Dockerfile.v2 --network=host -t multiftu .`
 3. Keep the `–netwrok=host` parameter to enable internet connection inside the
 docker container.
-4. Find the docker image id using:
-`docker image ls`
-5. Run the docker container with the image_id using :
-`docker run --gpus all -dit “image_id”`
-6. Use `–-gpus` parameter to dedicate gpus to the docker container and pass the `-dit`
-parameter to let the docker container running until we exit it
-7. Get the docker container id using:
-`docker ps -a`
-8. Attach the docker container to run prediction file:
-`docker attach “container_id”`
-9. Run the prediction file:
-`python3 predict_2.py`
+4. You can check if docker image was successfully created using: `docker image ls`
+5. Run the docker container with the image_id using : `docker run --gpus all multiftu python3 inference.py`
+6. Use `–-gpus` parameter to dedicate gpus to the docker container.
+7. You can check docker container status by using: `docker ps -a`
 
 
