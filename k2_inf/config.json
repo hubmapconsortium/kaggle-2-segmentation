@@ -12,17 +12,16 @@
         "img_size":768
     },
     "predict":{
-        "data_dir":"k2-validation/k2-validation/",
+        "data_dir":"/data",
         "models_folder":"weights",
-        "models_folder1":"weights",
-        "models_folder2":"weights",
         "output_csv_path":"submission.csv",
         "model_ckpt":"./weights/coat_lite_medium_384x384_f9129688.pth",
         "test_batch_size":3,
         "resolution":1024,
-        "test_df":"test_final.csv",
+        "test_df":"/data/test_final.csv",
         "pad_size":256,
-        "csv_path":"k2-validation/k2-validation/hickey_test.csv"
+        "csv_path":"data/hickey_test.csv",
+        "output_dir": "/output"
         
     },
     "pred_val":{

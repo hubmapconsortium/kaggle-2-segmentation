@@ -63,10 +63,12 @@ Steps to build the docker image:
 1. Navigate into `hra-multiftu-segmentation-pipeline` directory.
 2. Build docker using following command: `docker build -f docker/Dockerfile.v2 --network=host -t multiftu .`
 3. Keep the `–netwrok=host` parameter to enable internet connection inside the
-docker container.
+docker container. `multiftu` is the name we have defined for the container.
 4. You can check if docker image was successfully created using: `docker image ls`
-5. Run the docker container with the image_id using : `docker run --gpus all multiftu python3 inference.py`
-6. Use `–-gpus` parameter to dedicate gpus to the docker container.
-7. You can check docker container status by using: `docker ps -a`
-
+5. Run the docker container with the image_id using : `docker run -v $PWD/data:/data -v $PWD/output:/output --gpus all -it multiftu python3 inference.py`
+6. `$PWD/data:/data` mounts a local directory containing your input image. `$PWD/output:/output` mounts a local directory to the container where the output will be saved.
+7. You can also use this command to enter the container: `docker run --gpus all -it multiftu /bin/bash`
+8. Use `–-gpus` parameter to dedicate gpus to the docker container.
+9. You can check docker container status by using: `docker ps -a`
+10. Trained model weights can be downloaded from: (https://zenodo.org/record/7996245)[https://zenodo.org/record/7996245]. 
 

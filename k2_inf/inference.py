@@ -40,14 +40,16 @@ test_df = pd.read_csv(config["test_df"])
 
 # data_dir = '.'
 data_dir = config['data_dir']
+output_dir = config['output_dir']
 # data_dir = '../input/hubmap-organ-segmentation'
 models_folder = config['models_folder']
-models_folder1 = config['models_folder1']
-models_folder2 = config['models_folder2']
+# models_folder1 = config['models_folder1']
+# models_folder2 = config['models_folder2']
 # models_folder = '../input/subweights0/'
 
 # df = pd.read_csv(path.join(data_dir, 'test.csv'))
-
+print(f"DATA DIR: ", data_dir)
+print(f"OUTPUT DIR: ", output_dir)
 
 organs = ['prostate', 'spleen', 'lung', 'kidney', 'largeintestine']
 
@@ -55,6 +57,7 @@ class HuBMAPDataset(Dataset):
     def __init__(self, im_path, config,organ,new_size):
         super().__init__()
         self.im_path = im_path
+        print(self.im_path)
         self.data = rasterio.open(self.im_path)
         self.organ = organ
         if self.data.count != 3:
@@ -341,11 +344,11 @@ params = [
                                     ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_768_e34_{}_best', models_folder, 1), 
                                     ('convnext_large_384_in22ft1k', 'convnext_large_384_in22ft1k_768_e37_{}_best', models_folder, 1),
                                     ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_768_e36_{}_best', models_folder, 1), 
-                                    ('coat_lite_medium', 'coat_lite_medium_768_e40_{}_best', models_folder2, 3),
+                                    ('coat_lite_medium', 'coat_lite_medium_768_e40_{}_best', models_folder, 3),
                                    ],
                          'pred_dir': 'test_pred_768', 'weight': 0.2},
     {'size': (1024, 1024), 'models': [
-                                      ('convnext_large_384_in22ft1k', 'convnext_large_384_in22ft1k_1024_e32_{}_best', models_folder2, 1), 
+                                      ('convnext_large_384_in22ft1k', 'convnext_large_384_in22ft1k_1024_e32_{}_best', models_folder, 1), 
                                       ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_1024_e33_{}_best', models_folder, 1),
                                       ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_1024_e38_{}_best', models_folder, 1),
                                     ('coat_lite_medium', 'coat_lite_medium_1024_e41_{}_best', models_folder, 3),
@@ -354,7 +357,7 @@ params = [
     {'size': (1472, 1472), 'models': [
                                     ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_1472_e35_{}_best', models_folder, 1),
                                     ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_1472_e39_{}_best', models_folder, 1),
-                                    ('coat_lite_medium', 'coat_lite_medium_1472_e42_{}_best', models_folder2, 3),
+                                    ('coat_lite_medium', 'coat_lite_medium_1472_e42_{}_best', models_folder, 3),
                                    ],
                          'pred_dir': 'test_pred_1472', 'weight': 0.5},
 ]
@@ -386,11 +389,11 @@ def predict_models(param,im_path,organ,data_source):
 
             models.append((model, model_weight))
     torch.cuda.empty_cache()
-    with torch.no_grad():
-            im_path = im_path
+    with torch.inference_mode():
+            im_path = data_dir+'/'+im_path
             fname = im_path.split('/')[-1].split('.')[0]
             test_data = HuBMAPDataset(im_path,config,organ,[param['size']])
-            test_data_loader = DataLoader(test_data, batch_size=test_batch_size, num_workers=0, shuffle=False,collate_fn=my_collate_fn)
+            test_data_loader = DataLoader(test_data, batch_size=test_batch_size, num_workers=0, shuffle=False,collate_fn=my_collate_fn, pin_memory=True)
             st_ind = 0
             pred_mask = np.zeros((len(test_data),test_data.pred_sz,test_data.pred_sz), dtype=np.uint8)
             for sample in tqdm(test_data_loader):
@@ -459,7 +462,7 @@ def predict_models(param,im_path,organ,data_source):
             pred_mask = pred_mask.transpose(0,2,1,3).reshape(test_data.num_h*test_data.pred_sz, test_data.num_w*test_data.pred_sz)
             pred_mask = pred_mask[:test_data.h,:test_data.w] # back to the original slide size
             non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
-    cv.imwrite(f'/u/athbagde/hubmap_solution_victor/th_op/{organ}/{pred_dir}_{fname}_new.png',pred_mask)
+    cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
 
     del models
     torch.cuda.empty_cache()
@@ -522,7 +525,7 @@ for ind,row in test_df.iterrows():
     pred = np.asarray(preds).sum(axis=0)
     print('the mask shape is ',pred.shape)
     print(pred)
-    OmeTiffWriter.save(pred, f'/u/athbagde/hubmap_solution_victor/th_op/{organ}/{pred_dir}_{fname}.ome.tif')
+    OmeTiffWriter.save(pred, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
     #pred = cv.cvtColor(pred, cv2.COLOR_BGR2GRAY)
     #pred = pred.astype(np.float32)
     contours, hierarchy = cv.findContours(np.uint8(pred), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
@@ -542,7 +545,7 @@ for ind,row in test_df.iterrows():
                             }
                                 }
             
-    with open(f'/u/athbagde/hubmap_solution_victor/th_op/{organ}/{pred_dir}_{fname}.json', "w") as outfile:
+    with open(f'{output_dir}/{pred_dir}_{fname}.json', "w") as outfile:
             json.dump(json_dir,outfile)
     outfile.close()
     print('json and img saved')

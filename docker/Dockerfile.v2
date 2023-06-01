@@ -16,6 +16,8 @@ RUN apt-get update \
     python3 \
     python3-dev \
     python3-pip \
+    wget \
+    unzip \
  && rm -rf /var/cache/apt/*
 
 COPY docker/requirements.txt .
@@ -24,9 +26,14 @@ RUN pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1
 RUN pip3 install -r requirements.txt \
  && rm -rf /root/.cache/pip
 
-
-
 RUN mkdir /root/.ssh
 
 COPY k2_inf /opt
+COPY weights /opt/weights
 WORKDIR /opt
+# RUN mkdir weights \
+#  && wget -O weights.zip https://zenodo.org/record/7996245/files/trained_model_weights.zip?download=1 \
+#  && unzip weights.zip -d weights \
+#  && mv weights/trained_model_weights/* weights/ \
+#  && rm -r weights/trained_model_weights \
+#  && rm weights.zip
