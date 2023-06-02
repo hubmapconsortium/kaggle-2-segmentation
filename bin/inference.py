@@ -529,11 +529,13 @@ if __name__ == '__main__':
         im_path = row['id']
         organ = row['organ']
         data_source = row['data_source']
+        
         for param in params:
             img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source, args.inference_mode)
             preds.append(img_pred * param['weight'])
 
-        pred_mask = np.asarray(preds).sum(axis=0)
+        # pred_mask = np.asarray(preds).sum(axis=0)
+        pred_mask = np.mean(np.asarray(preds))
         
         _thr = organ_threshold[data_source][organ]
         pred_mask_thr = (pred_mask > _thr).astype(np.uint8)
