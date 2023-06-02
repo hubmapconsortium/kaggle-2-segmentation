@@ -29,7 +29,7 @@ RUN pip3 install -r requirements.txt \
 RUN mkdir /root/.ssh
 
 COPY bin /opt
-COPY weights /opt/weights
+#COPY weights /opt/weights
 WORKDIR /opt
 # RUN mkdir weights \
 #  && wget -O weights.zip https://zenodo.org/record/7996245/files/trained_model_weights.zip?download=1 \
