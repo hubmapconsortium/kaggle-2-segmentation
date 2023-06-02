@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from rasterio.windows import Window
 import copy
+from argparse import ArgumentParser
 
 import pandas as pd
 from tqdm import tqdm
@@ -344,7 +345,7 @@ params = [
                          'pred_dir': 'test_pred_1472', 'weight': 0.5},
 ]
 
-def predict_models(param,im_path,organ,data_source):
+def predict_models(param,im_path,organ,data_source, inference_mode):
     print(param)
     makedirs(param['pred_dir'], exist_ok=True)
     pred_dir = param['pred_dir']
@@ -352,6 +353,10 @@ def predict_models(param,im_path,organ,data_source):
     gc.collect()
     models=[]
     for model_name, checkpoint_name, checkpoint_dir, model_weight in param['models']:
+        best_checkpoint = -1
+        best_model = None
+        best_fold = -1
+        best_score = -1
         for fold in range(5):
             model = Timm_Unet(name=model_name, pretrained=None)
             snap_to_load = checkpoint_name.format(fold)
@@ -366,9 +371,26 @@ def predict_models(param,im_path,organ,data_source):
             model.load_state_dict(loaded_dict)
             print("loaded checkpoint '{}' (epoch {}, best_score {})".format(snap_to_load, 
                 checkpoint['epoch'], checkpoint['best_score']))
-            model = model.eval().cuda()
+            
 
+            if inference_mode == "fast":
+                if checkpoint['best_score'] > best_checkpoint:
+                    best_model = model
+                    best_fold = fold
+                    best_score = checkpoint['best_score']
+            else:
+                model = model.eval().cuda()
+                models.append((model, model_weight))
+
+
+            # model = model.eval().cuda()
+            # models.append((model, model_weight))
+        if inference_mode == "fast":
+            model = best_model.eval().cuda()
             models.append((model, model_weight))
+            print("Fast Inference Mode: loaded (model {}, fold {}, best_score {})".format(model_name, best_fold, 
+                best_score))
+
     torch.cuda.empty_cache()
     with torch.inference_mode():
             im_path = data_dir+'/'+im_path
@@ -448,6 +470,7 @@ def predict_models(param,im_path,organ,data_source):
             pred_mask = pred_mask[:test_data.h,:test_data.w] # back to the original slide size
             # non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
     # cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
+    OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
 
     del models
     torch.cuda.empty_cache()
@@ -488,27 +511,44 @@ def mask2json(mask, organ):
 
     return geojson_list
 
-for ind,row in test_df.iterrows():
-    preds=[]
-    im_path = row['id']
-    organ = row['organ']
-    data_source = row['data_source']
-    for param in params:
-        img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source)
-        preds.append(img_pred * param['weight'])
-    pred_mask = np.asarray(preds).sum(axis=0)
-    _thr = organ_threshold[data_source][organ]
-    pred_mask_thr = (pred_mask > _thr).astype(np.uint8)
-    print('Threshold value ',_thr)
-    print('the mask shape is ',pred_mask_thr.shape)
-    print('Mask unique values before thresholding', np.unique(pred_mask))
-    print('Mask unique values after thresholding', np.unique(pred_mask_thr))
-    
-    OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
-    
-    json_mask = mask2json(pred_mask_thr, organ)        
-    with open(f'{output_dir}/{pred_dir}_{fname}.json', "w") as f:
-            json.dump(json_mask,f, 'utf-8-sig')
-    
-    print('json and img saved')
+if __name__ == '__main__':
+    t0 = timeit.default_timer()
+    p = ArgumentParser()
+    p.add_argument('--inference_mode', type=str, choices=['default','fast'], default='default') # default (general) or fast
+    args = p.parse_args()
+    # print(args.inference_mode)
+    # print(type(args.inference_mode))
+
+    if args.inference_mode == "fast":
+        print("!!!RUNNING IN FAST INFERENCE MODE!!!")
+    else:
+        print("!!!RUNNING IN NORMAL INFERENCE MODE!!!")
+
+    for ind,row in test_df.iterrows():
+        preds=[]
+        im_path = row['id']
+        organ = row['organ']
+        data_source = row['data_source']
+        for param in params:
+            img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source, args.inference_mode)
+            preds.append(img_pred * param['weight'])
+
+        pred_mask = np.asarray(preds).sum(axis=0)
+        
+        _thr = organ_threshold[data_source][organ]
+        pred_mask_thr = (pred_mask > _thr).astype(np.uint8)
+        print('Threshold value ',_thr)
+        print('the mask shape is ',pred_mask_thr.shape)
+        print('Mask unique values before thresholding', np.unique(pred_mask))
+        print('Mask unique values after thresholding', np.unique(pred_mask_thr))
+        
+        OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{fname}_mask.ome.tif')
+        
+        json_mask = mask2json(pred_mask_thr, organ)        
+        with open(f'{output_dir}/{fname}_mask.json', "w") as f:
+                json.dump(json_mask,f)
+        
+        print('json and img saved')
+        elapsed = timeit.default_timer() - t0
+        print('Total Processing Time: {:.3f} min'.format(elapsed / 60))
 
