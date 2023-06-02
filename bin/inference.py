@@ -456,15 +456,9 @@ def predict_models(param,im_path,organ,data_source):
     return pred_mask, pred_dir, fname
 
 def mask2json(mask, organ):
-    contours = measure.find_contours(mask, 0.8)
+    # contours = measure.find_contours(mask) #(mask, 0.8)
     # contour to polygon
-
-    polygons = []
-    for object in contours:
-        coords = []
-        for point in object:
-            coords.append([int(point[0]), int(point[1])])
-        polygons.append(coords)
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
     # save as json
     geojson_dict_template = {
@@ -484,11 +478,12 @@ def mask2json(mask, organ):
             "measurements": []
         }
     }
+    
     geojson_list = []
-    for i, polygon in enumerate(polygons):
+    for i, polygon in enumerate(contours):
         geojson_dict = copy.deepcopy(geojson_dict_template)
         geojson_dict["properties"]["classification"]["colorRGB"] = i
-        geojson_dict["geometry"]["coordinates"].append(polygon)
+        geojson_dict["geometry"]["coordinates"].extend([x[0] for x in polygon.tolist()]+[polygon.tolist()[0][0]])
         geojson_list.append(geojson_dict)
 
     return geojson_list
@@ -508,26 +503,9 @@ for ind,row in test_df.iterrows():
     print('the mask shape is ',pred_mask_thr.shape)
     print('Mask unique values before thresholding', np.unique(pred_mask))
     print('Mask unique values after thresholding', np.unique(pred_mask_thr))
-    # print(pred_mask)
+    
     OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
-    #pred = cv.cvtColor(pred, cv2.COLOR_BGR2GRAY)
-    #pred = pred.astype(np.float32)
-    # contours, hierarchy = cv.findContours(np.uint8(pred_mask), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-    # contours = [x.tolist() for x in contours]
-    # json_dir = {"type": "Feature",
-    #             "id": "PathAnnotationObject",
-    #             "geometry": {
-    #                 "type": "Polygon",
-    #                 "coordinates":contours},
-    #             "properties": {
-    #                 "classification": {
-    #                     "name": organ,
-    #                     "colorRGB": -2315298
-    #                                 },
-    #             "isLocked": True,
-    #             "measurements": []
-    #                         }
-    #                             }
+    
     json_mask = mask2json(pred_mask_thr, organ)        
     with open(f'{output_dir}/{pred_dir}_{fname}.json', "w") as f:
             json.dump(json_mask,f)
