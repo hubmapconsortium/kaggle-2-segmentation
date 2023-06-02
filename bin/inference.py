@@ -508,7 +508,7 @@ for ind,row in test_df.iterrows():
     
     json_mask = mask2json(pred_mask_thr, organ)        
     with open(f'{output_dir}/{pred_dir}_{fname}.json', "w") as f:
-            json.dump(json_mask,f)
+            json.dump(json_mask,f, 'utf-8-sig')
     
     print('json and img saved')
 
