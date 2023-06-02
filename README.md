@@ -70,5 +70,5 @@ docker container. `multiftu` is the name we have defined for the container.
 7. You can also use this command to enter the container: `docker run --gpus all -it multiftu /bin/bash`
 8. Use `–-gpus` parameter to dedicate gpus to the docker container.
 9. You can check docker container status by using: `docker ps -a`
-10. Trained model weights can be downloaded from: (https://zenodo.org/record/7996245)[https://zenodo.org/record/7996245]. 
+10. Trained model weights can be downloaded from: (https://zenodo.org/record/7996245)[https://zenodo.org/record/7996245]. For testing, download weights and save in a dir `weights` in the root directory of the repository. For production, replace `COPY weights /opt/weights` in dockerfile with the last line that's currently commented.
 

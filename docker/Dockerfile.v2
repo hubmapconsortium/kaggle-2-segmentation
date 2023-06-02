@@ -28,7 +28,7 @@ RUN pip3 install -r requirements.txt \
 
 RUN mkdir /root/.ssh
 
-COPY k2_inf /opt
+COPY bin /opt
 COPY weights /opt/weights
 WORKDIR /opt
 # RUN mkdir weights \

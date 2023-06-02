@@ -20,7 +20,7 @@
         "resolution":1024,
         "test_df":"/data/test_final.csv",
         "pad_size":256,
-        "csv_path":"data/hickey_test.csv",
+        "csv_path":"/data/hickey_test.csv",
         "output_dir": "/output"
         
     },

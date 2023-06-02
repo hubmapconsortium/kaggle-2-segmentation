@@ -18,7 +18,7 @@ cudnn.benchmark = True
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from rasterio.windows import Window
-
+import copy
 
 import pandas as pd
 from tqdm import tqdm
@@ -26,9 +26,11 @@ import timeit
 import cv2
 t0 = timeit.default_timer()
 import rasterio
-
+from skimage import measure
 import gc
 import json
+
+from coat import *
 ##Load config json
 file = open('config.json')
 data = json.load(file)
@@ -36,7 +38,6 @@ file.close()
 
 config = data["predict"]
 test_df = pd.read_csv(config["test_df"])
-
 
 # data_dir = '.'
 data_dir = config['data_dir']
@@ -48,16 +49,13 @@ models_folder = config['models_folder']
 # models_folder = '../input/subweights0/'
 
 # df = pd.read_csv(path.join(data_dir, 'test.csv'))
-print(f"DATA DIR: ", data_dir)
-print(f"OUTPUT DIR: ", output_dir)
 
-organs = ['prostate', 'spleen', 'lung', 'kidney', 'largeintestine']
+supported_tissue_types = ['prostate', 'spleen', 'lung', 'kidney', 'largeintestine']
 
 class HuBMAPDataset(Dataset):
     def __init__(self, im_path, config,organ,new_size):
         super().__init__()
         self.im_path = im_path
-        print(self.im_path)
         self.data = rasterio.open(self.im_path)
         self.organ = organ
         if self.data.count != 3:
@@ -127,10 +125,6 @@ class HuBMAPDataset(Dataset):
         """
         return sample
 
-
-
-
-
 def rle_encode_less_memory(img):
     pixels = img.T.flatten()
     pixels[0] = 0
@@ -145,7 +139,6 @@ def preprocess_inputs(x):
     x /= 127
     x -= 1
     return x
-
 
 class TestDataset(Dataset):
     def __init__(self, df, data_dir='test_images', new_size=None):
@@ -177,6 +170,7 @@ class TestDataset(Dataset):
             sample['img{}'.format(i)] = img
 
         return sample
+    
 def my_collate_fn(batch):
     img = []
     p = []
@@ -207,11 +201,6 @@ class ConvSilu(nn.Module):
         )
     def forward(self, x):
         return self.layer(x)
-
-
-
-from coat import *
-
 
 class Timm_Unet(nn.Module):
     def __init__(self, name='resnet34', pretrained=True, inp_size=3, otp_size=1, decoder_filters=[32, 48, 64, 96, 128], **kwargs):
@@ -258,7 +247,6 @@ class Timm_Unet(nn.Module):
 
         self.encoder = encoder
 
-
     def forward(self, x):
         batch_size, C, H, W = x.shape
 
@@ -297,7 +285,6 @@ class Timm_Unet(nn.Module):
 
         return self.res(dec10), organ_cls, pixel_size
 
-
     def _initialize_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Linear):
@@ -308,9 +295,6 @@ class Timm_Unet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-
-
-
 test_batch_size = config['test_batch_size']
 
 # amp_autocast = suppress
@@ -319,7 +303,6 @@ amp_autocast = torch.cuda.amp.autocast
 half_size = True
 
 hubmap_only = False #True #False
-
 
 organ_threshold = {
     'Hubmap': {
@@ -337,7 +320,6 @@ organ_threshold = {
         'lung'          : 25,
     },
 }
-
 
 params = [
     {'size': (768, 768), 'models': [
@@ -361,7 +343,6 @@ params = [
                                    ],
                          'pred_dir': 'test_pred_1472', 'weight': 0.5},
 ]
-
 
 def predict_models(param,im_path,organ,data_source):
     print(param)
@@ -447,72 +428,70 @@ def predict_models(param,im_path,organ,data_source):
                                 msk_preds[i] += model_weight * cv2.resize(msk_pred[i, 0].astype('float32'), (orig_w[i], orig_h[i]))
                     del inp
                     torch.cuda.empty_cache()
+                
                 for i in range(len(ids)):
                     msk_pred = msk_preds[i] / cnt
                     msk_pred = (msk_pred * 255).astype('uint8')
-                    msk_preds[i]=msk_pred
+                    msk_preds[i] = msk_pred
+                
                 msk_stack = np.vstack([msk[None] for msk in msk_preds])
-                msk_stack_int = (msk_stack>150).astype(np.uint8)
+                msk_stack_int = msk_stack#(msk_stack>organ_threshold[data_source][organ]).astype(np.uint8) # set organ threshold for prediction
+                
                 for j in range(len(ids)):
                     py0,py1,px0,px1 = sample['p'][j]
                     qy0,qy1,qx0,qx1 = sample['q'][j]
                     pred_mask[st_ind+j,0:py1-py0, 0:px1-px0] = msk_stack_int[j, py0-qy0:py1-qy0, px0-qx0:px1-qx0] # (pred_sz,pred_sz)
                 st_ind += len(ids)
+
             pred_mask = pred_mask.reshape(test_data.num_h*test_data.num_w, test_data.pred_sz, test_data.pred_sz).reshape(test_data.num_h, test_data.num_w, test_data.pred_sz, test_data.pred_sz)
             pred_mask = pred_mask.transpose(0,2,1,3).reshape(test_data.num_h*test_data.pred_sz, test_data.num_w*test_data.pred_sz)
             pred_mask = pred_mask[:test_data.h,:test_data.w] # back to the original slide size
-            non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
-    cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
+            # non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
+    # cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
 
     del models
     torch.cuda.empty_cache()
     gc.collect()
 
-    
     return pred_mask, pred_dir, fname
-            #print('The fname ',fname)
 
+def mask2json(mask, organ):
+    contours = measure.find_contours(mask, 0.8)
+    # contour to polygon
 
-    
+    polygons = []
+    for object in contours:
+        coords = []
+        for point in object:
+            coords.append([int(point[0]), int(point[1])])
+        polygons.append(coords)
 
+    # save as json
+    geojson_dict_template = {
+        "type": "Feature",
+        "id": "PathAnnotationObject",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+            ]
+        },
+        "properties": {
+            "classification": {
+                "name": organ,
+                "colorRGB": -3140401
+            },
+            "isLocked": True,
+            "measurements": []
+        }
+    }
+    geojson_list = []
+    for i, polygon in enumerate(polygons):
+        geojson_dict = copy.deepcopy(geojson_dict_template)
+        geojson_dict["properties"]["classification"]["colorRGB"] = i
+        geojson_dict["geometry"]["coordinates"].append(polygon)
+        geojson_list.append(geojson_dict)
 
-
-
-
-
-    """""
-                    msk_slice = msk_pred[0]
-                    contours, hierarchy = cv.findContours(msk_slice, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-                    contours = [x.tolist() for x in contours]
-        
-
-                    print(ids[i], organ[i], res_cls[i], res_pix[i]) #pixel_size[i]
-                    json_dir = {"type": "Feature",
-                                "id": "PathAnnotationObject",
-                                "geometry": {
-                                    "type": "Polygon",
-                                    "coordinates":contours},
-                                "properties": {
-                                    "classification": {
-                                        "name": ids[i],
-                                        "colorRGB": -2315298
-                                                    },
-                                "isLocked": False,
-                                "measurements": []
-                                            }
-                                }
-                    
-                    with open(f"{param['pred_dir']}/{ids[i]}.json", "w") as outfile:
-                        json.dump(json_dir,outfile)
-                    outfile.close()
-                    """
-
-                    #cv2.imwrite(path.join(param['pred_dir'] , '{}.png'.format(ids[i])), msk_pred, [cv2.IMWRITE_PNG_COMPRESSION, 4])
-
-    del models
-    torch.cuda.empty_cache()
-    gc.collect()
-
+    return geojson_list
 
 for ind,row in test_df.iterrows():
     preds=[]
@@ -522,63 +501,36 @@ for ind,row in test_df.iterrows():
     for param in params:
         img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source)
         preds.append(img_pred * param['weight'])
-    pred = np.asarray(preds).sum(axis=0)
-    print('the mask shape is ',pred.shape)
-    print(pred)
-    OmeTiffWriter.save(pred, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
+    pred_mask = np.asarray(preds).sum(axis=0)
+    _thr = organ_threshold[data_source][organ]
+    pred_mask_thr = (pred_mask > _thr).astype(np.uint8)
+    print('Threshold value ',_thr)
+    print('the mask shape is ',pred_mask_thr.shape)
+    print('Mask unique values before thresholding', np.unique(pred_mask))
+    print('Mask unique values after thresholding', np.unique(pred_mask_thr))
+    # print(pred_mask)
+    OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
     #pred = cv.cvtColor(pred, cv2.COLOR_BGR2GRAY)
     #pred = pred.astype(np.float32)
-    contours, hierarchy = cv.findContours(np.uint8(pred), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
-    contours = [x.tolist() for x in contours]
-    json_dir = {"type": "Feature",
-                "id": "PathAnnotationObject",
-                "geometry": {
-                    "type": "Polygon",
-                    "coordinates":contours},
-                "properties": {
-                    "classification": {
-                        "name": organ,
-                        "colorRGB": -2315298
-                                    },
-                "isLocked": False,
-                "measurements": []
-                            }
-                                }
-            
-    with open(f'{output_dir}/{pred_dir}_{fname}.json', "w") as outfile:
-            json.dump(json_dir,outfile)
-    outfile.close()
-    print('json and img saved')
+    # contours, hierarchy = cv.findContours(np.uint8(pred_mask), cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)
+    # contours = [x.tolist() for x in contours]
+    # json_dir = {"type": "Feature",
+    #             "id": "PathAnnotationObject",
+    #             "geometry": {
+    #                 "type": "Polygon",
+    #                 "coordinates":contours},
+    #             "properties": {
+    #                 "classification": {
+    #                     "name": organ,
+    #                     "colorRGB": -2315298
+    #                                 },
+    #             "isLocked": True,
+    #             "measurements": []
+    #                         }
+    #                             }
+    json_mask = mask2json(pred_mask_thr, organ)        
+    with open(f'{output_dir}/{pred_dir}_{fname}.json', "w") as f:
+            json.dump(json_mask,f)
     
+    print('json and img saved')
 
-
-
-''''
-res_df = []
-
-for _, r in df.iterrows():
-    preds = []
-
-    if hubmap_only and (r['data_source'] != 'Hubmap'):
-        res_df.append({'id': r['id'], 'rle': ''})
-        continue
-
-    for param in params:
-        pred = cv2.imread(path.join(param['pred_dir'], '{}.png'.format(r['id'])), cv2.IMREAD_GRAYSCALE)
-        preds.append(pred * param['weight'])
-
-    _thr = organ_threshold[r['data_source']][r['organ']]
-
-    pred = np.asarray(preds).sum(axis=0)
-
-    res_df.append({'id': r['id'], 'rle': rle_encode_less_memory(pred > _thr)})
-
-    # cv2.imwrite(path.join('.', '{}.png'.format(r['id'])), pred.astype('uint8'), [cv2.IMWRITE_PNG_COMPRESSION, 4])
-
-res_df = pd.DataFrame(res_df)
-res_df.to_csv(config['output_csv_path'], index=False)
-
-elapsed = timeit.default_timer() - t0
-print('Time: {:.3f} min'.format(elapsed / 60))
-
-'''''
