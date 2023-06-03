@@ -1,37 +1,32 @@
-import sys
-import timm
-
-import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
-
-from os import path, makedirs, listdir
-from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
-import numpy as np
-import random
- 
-import cv2 as cv
-import torch
-from torch import nn
-import torch.nn.functional as F
-from torch.backends import cudnn
-cudnn.benchmark = True
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
-from rasterio.windows import Window
 import copy
-from argparse import ArgumentParser
-
-import pandas as pd
-from tqdm import tqdm
-import timeit
-import cv2
-t0 = timeit.default_timer()
-import rasterio
-from skimage import measure
 import gc
 import json
+import os
+import random
+import sys
+import timeit
+from argparse import ArgumentParser
+from os import listdir, makedirs, path
 
+import cv2
+import cv2 as cv
+import numpy as np
+import pandas as pd
+import rasterio
+import timm
+import torch
+import torch.nn.functional as F
+from aicsimageio.writers.ome_tiff_writer import OmeTiffWriter
 from coat import *
+from rasterio.windows import Window
+from skimage import measure
+from torch import nn
+from torch.backends import cudnn
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
+cudnn.benchmark = True
 ##Load config json
 file = open('config.json')
 data = json.load(file)
@@ -71,7 +66,6 @@ class HuBMAPDataset(Dataset):
         # add to each input tile # Trick to avoid the edge effect and this pad size determines the size of the neglected part 
         # # (see the self.pred_sz below).
         self.pad_sz = config['pad_size'] 
-        # This part is a bit tricky.
         # self.pred_sz is the size used for prediction which is cut from the output (with self.sz) of U-net
         # For example, 
         # self.sz = 1024, self.pad_sz = 256, self.input_sz = 320
@@ -138,15 +132,6 @@ class HuBMAPDataset(Dataset):
         return {'img':img, 'p':[py0,py1,px0,px1], 'q':[qy0,qy1,qx0,qx1]}
         """
         return sample
-
-# def rle_encode_less_memory(img):
-#     pixels = img.T.flatten()
-#     pixels[0] = 0
-#     pixels[-1] = 0
-#     runs = np.where(pixels[1:] != pixels[:-1])[0] + 2
-#     runs[1::2] -= runs[::2]
-#     return ' '.join(str(x) for x in runs)
-
 
 def preprocess_inputs(x):
     x = np.asarray(x, dtype='float32')
@@ -485,7 +470,7 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
             print("Line:471 msk_pred min,max values after multiplying by 255:",np.min(msk_pred_scaled), np.max(msk_pred_scaled), np.unique(msk_pred_scaled))
             # msk_pred = (msk_pred * 255).astype('uint8')
             # pred_mask_float = msk_pred
-        ### 
+        
             # resize
             pred_mask_float = np.vstack([cv2.resize(_mask.astype(np.float32), (orig_w[0], orig_h[0]))[None] for _mask in msk_pred_scaled])
             # msk_stack = np.vstack([msk[None] for msk in msk_preds])
@@ -503,10 +488,10 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
         pred_mask = pred_mask.transpose(0,2,1,3).reshape(test_data.num_h*test_data.pred_sz, test_data.num_w*test_data.pred_sz)
 
         pred_mask = pred_mask[:test_data.h,:test_data.w] # back to the original slide size
-        ###
+        
         # non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
     # cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
-    OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
+    OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif') # TODO: Only for testing. Remove later.
 
     del models
     torch.cuda.empty_cache()
@@ -565,8 +550,6 @@ if __name__ == '__main__':
         im_path = row['id']
         organ = row['organ']
         data_source = row['data_source']
-
-        
 
         for param in params:
             img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source, args.inference_mode)
