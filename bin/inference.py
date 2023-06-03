@@ -65,13 +65,25 @@ class HuBMAPDataset(Dataset):
             if len(subdatasets) > 0:
                 for i,subdataset in enumerate(subdatasets,0):
                     self.layers.append(rasterio.open(subdataset))
-        self.h, self.w = self.data.height, self.data.width
-        self.input_sz = new_size
-        self.sz = config['resolution']
-        self.pad_sz = config['pad_size'] # add to each input tile
+        self.h, self.w = self.data.height, self.data.width # height and width of the slide (no resize)
+        self.input_sz = new_size # input image size for U-net
+        self.sz = config['resolution'] # tile size (no resize)
+        # add to each input tile # Trick to avoid the edge effect and this pad size determines the size of the neglected part 
+        # # (see the self.pred_sz below).
+        self.pad_sz = config['pad_size'] 
+        # This part is a bit tricky.
+        # self.pred_sz is the size used for prediction which is cut from the output (with self.sz) of U-net
+        # For example, 
+        # self.sz = 1024, self.pad_sz = 256, self.input_sz = 320
+        # then I first resize 1024x1024 tile into 320x320 and feed it into U-net.
+        # The output of U-net is 320x320 and I resize it to 1024x1024.
+        # Since the self.pad_sz=256 here, I extract the center part 512x512 (512=1024-2*256) from the 1024x1024.
         self.pred_sz = self.sz - 2*self.pad_sz
+        # pad size for the slide
+        # Since the prediction size is self.pred_sz (not self.sz) here, I used the equation below
         self.pad_h = self.pred_sz - self.h % self.pred_sz # add to whole slide
         self.pad_w = self.pred_sz - self.w % self.pred_sz # add to whole slide
+        # number of tiles 
         self.num_h = (self.h + self.pad_h) // self.pred_sz
         self.num_w = (self.w + self.pad_w) // self.pred_sz
         
@@ -111,14 +123,15 @@ class HuBMAPDataset(Dataset):
                   "p":[py0,py1,px0,px1],
                   "q":[qy0,qy1,qx0,qx1]}
 
-        for i in range(len(self.input_sz)):
+        if self.sz != self.input_sz:
 
-            img = cv2.resize(img, self.input_sz[i])
+            img = cv2.resize(img, self.input_sz, interpolation=cv2.INTER_AREA)
 
-            img = preprocess_inputs(img)
-            img = torch.from_numpy(img.transpose((2, 0, 1)).copy()).float()
+        img = preprocess_inputs(img)
+        img = torch.from_numpy(img.transpose((2, 0, 1)).copy()).float()
 
-            sample['img{}'.format(i)] = img
+        i=0
+        sample['img{}'.format(i)] = img
         """""
         if self.sz != self.input_sz:
             img = cv2.resize(img, (self.input_sz, self.input_sz), interpolation=cv2.INTER_AREA)
@@ -126,13 +139,13 @@ class HuBMAPDataset(Dataset):
         """
         return sample
 
-def rle_encode_less_memory(img):
-    pixels = img.T.flatten()
-    pixels[0] = 0
-    pixels[-1] = 0
-    runs = np.where(pixels[1:] != pixels[:-1])[0] + 2
-    runs[1::2] -= runs[::2]
-    return ' '.join(str(x) for x in runs)
+# def rle_encode_less_memory(img):
+#     pixels = img.T.flatten()
+#     pixels[0] = 0
+#     pixels[-1] = 0
+#     runs = np.where(pixels[1:] != pixels[:-1])[0] + 2
+#     runs[1::2] -= runs[::2]
+#     return ' '.join(str(x) for x in runs)
 
 
 def preprocess_inputs(x):
@@ -301,7 +314,7 @@ test_batch_size = config['test_batch_size']
 # amp_autocast = suppress
 amp_autocast = torch.cuda.amp.autocast
 
-half_size = True
+# half_size = True
 
 hubmap_only = False #True #False
 
@@ -393,82 +406,105 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
 
     torch.cuda.empty_cache()
     with torch.inference_mode():
-            im_path = data_dir+'/'+im_path
-            fname = im_path.split('/')[-1].split('.')[0]
-            test_data = HuBMAPDataset(im_path,config,organ,[param['size']])
-            test_data_loader = DataLoader(test_data, batch_size=test_batch_size, num_workers=0, shuffle=False,collate_fn=my_collate_fn, pin_memory=True)
-            st_ind = 0
-            pred_mask = np.zeros((len(test_data),test_data.pred_sz,test_data.pred_sz), dtype=np.uint8)
-            for sample in tqdm(test_data_loader):
-                ids = sample['id']
-                orig_w = np.array(sample["orig_w"])
-                orig_h = np.array(sample["orig_h"])
-                if hubmap_only and (data_source[0] != 'Hubmap'):
-                    continue
-                msk_preds = []
-                for i in range(0, len(ids), 1):
-                    msk_preds.append(np.zeros((orig_h[i], orig_w[i]), dtype='float32'))
-                cnt = 0
-                imgs = sample["img"].cpu().numpy()
-                with amp_autocast():
-                    for _tta in range(4): #8
-                        _i = _tta // 2
-                        _flip = False
-                        if _tta % 2 == 1:
-                            _flip = True
-                        if _i == 0:
-                            inp = imgs.copy()
-                        elif _i == 1:
-                            inp = np.rot90(imgs, k=1, axes=(2,3)).copy()
-                        elif _i == 2:
-                            inp = np.rot90(imgs, k=2, axes=(2,3)).copy()
-                        elif _i == 3:
-                            inp = np.rot90(imgs, k=3, axes=(2,3)).copy()
+        im_path = data_dir+'/'+im_path
+        fname = im_path.split('/')[-1].split('.')[0]
+        
+        test_data = HuBMAPDataset(im_path,config,organ,param['size'])
+        test_data_loader = DataLoader(test_data, batch_size=test_batch_size, num_workers=0, shuffle=False,collate_fn=my_collate_fn, pin_memory=True)
+        
+        st_ind = 0
+        
+        pred_mask = np.zeros((len(test_data),test_data.pred_sz,test_data.pred_sz), dtype=np.uint8)
 
-                        if _flip:
-                            inp = inp[:, :, :, ::-1].copy()
+        for sample in tqdm(test_data_loader):
+            bs = sample['img'].shape[0]
+            ids = sample['id']
+            orig_w = np.array(sample["orig_w"])
+            orig_h = np.array(sample["orig_h"])
+            # if hubmap_only and (data_source[0] != 'Hubmap'):
+            #     continue
+            # msk_preds = []
+            # for i in range(0, len(ids), 1):
+            print(f"Line 416: Orig_h,Orig_w:{orig_h},{orig_w}")
+            # msk_preds.append(np.zeros((orig_h[0], orig_w[0]), dtype='float32'))
+            
+            cnt = 0
+            pred_mask_float = 0
+            imgs = sample["img"].cpu().numpy()
+            print(f"Line 422: imgs shape:{imgs.shape}")
+            with amp_autocast():
+                for _tta in range(4): #8
+                    _i = _tta // 2
+                    _flip = False
+                    if _tta % 2 == 1:
+                        _flip = True
+                    if _i == 0:
+                        inp = imgs.copy()
+                    elif _i == 1:
+                        inp = np.rot90(imgs, k=1, axes=(2,3)).copy() # change axes to (1,2) ???
+                    elif _i == 2:
+                        inp = np.rot90(imgs, k=2, axes=(2,3)).copy()
+                    elif _i == 3:
+                        inp = np.rot90(imgs, k=3, axes=(2,3)).copy()
 
-                        inp = torch.from_numpy(inp).float().cuda()                 
-                        torch.cuda.empty_cache()
-                        for model, model_weight in models:
-                            out, res_cls, res_pix = model(inp)
-                            msk_pred = torch.sigmoid(out).cpu().numpy()
-                            res_cls = torch.softmax(res_cls, dim=1).cpu().numpy()
-                            res_pix = res_pix.cpu().numpy()
-                            if _flip:
-                                msk_pred = msk_pred[:, :, :, ::-1].copy()
-                            if _i == 1:
-                                msk_pred = np.rot90(msk_pred, k=4-1, axes=(2,3)).copy()
-                            elif _i == 2:
-                                msk_pred = np.rot90(msk_pred, k=4-2, axes=(2,3)).copy()
-                            elif _i == 3:
-                                msk_pred = np.rot90(msk_pred, k=4-3, axes=(2,3)).copy()
+                    if _flip:
+                        inp = inp[:, :, :, ::-1].copy()
 
-                            cnt += model_weight
-
-                            for i in range(len(ids)):
-                                msk_preds[i] += model_weight * cv2.resize(msk_pred[i, 0].astype('float32'), (orig_w[i], orig_h[i]))
-                    del inp
+                    inp = torch.from_numpy(inp).float().cuda()                 
                     torch.cuda.empty_cache()
-                
-                for i in range(len(ids)):
-                    msk_pred = msk_preds[i] / cnt
-                    msk_pred = (msk_pred * 255).astype('uint8')
-                    msk_preds[i] = msk_pred
-                
-                msk_stack = np.vstack([msk[None] for msk in msk_preds])
-                msk_stack_int = msk_stack#(msk_stack>organ_threshold[data_source][organ]).astype(np.uint8) # set organ threshold for prediction
-                
-                for j in range(len(ids)):
-                    py0,py1,px0,px1 = sample['p'][j]
-                    qy0,qy1,qx0,qx1 = sample['q'][j]
-                    pred_mask[st_ind+j,0:py1-py0, 0:px1-px0] = msk_stack_int[j, py0-qy0:py1-qy0, px0-qx0:px1-qx0] # (pred_sz,pred_sz)
-                st_ind += len(ids)
+                    # print(f"Number of models : {len(models)}")
+                    for model, model_weight in models:
+                        out, res_cls, res_pix = model(inp)
+                        msk_pred = torch.sigmoid(out).cpu().numpy()
+                        res_cls = torch.softmax(res_cls, dim=1).cpu().numpy()
+                        res_pix = res_pix.cpu().numpy()
+                        if _flip:
+                            msk_pred = msk_pred[:, :, :, ::-1].copy()
+                        if _i == 1:
+                            msk_pred = np.rot90(msk_pred, k=4-1, axes=(2,3)).copy()
+                        elif _i == 2:
+                            msk_pred = np.rot90(msk_pred, k=4-2, axes=(2,3)).copy()
+                        elif _i == 3:
+                            msk_pred = np.rot90(msk_pred, k=4-3, axes=(2,3)).copy()
 
-            pred_mask = pred_mask.reshape(test_data.num_h*test_data.num_w, test_data.pred_sz, test_data.pred_sz).reshape(test_data.num_h, test_data.num_w, test_data.pred_sz, test_data.pred_sz)
-            pred_mask = pred_mask.transpose(0,2,1,3).reshape(test_data.num_h*test_data.pred_sz, test_data.num_w*test_data.pred_sz)
-            pred_mask = pred_mask[:test_data.h,:test_data.w] # back to the original slide size
-            # non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
+                        cnt += model_weight
+
+                        # for i in range(len(ids)):
+                        # pred_mask_float += model_weight * cv2.resize(msk_pred[0, 0].astype('float32'), (orig_w[0], orig_h[0]))
+                        # print("Line:462",msk_pred.shape, msk_pred[:,0,:,:].shape)
+                        pred_mask_float += model_weight * msk_pred[:,0,:,:].astype('float32')
+                del inp
+                torch.cuda.empty_cache()
+            print("Line:465",pred_mask_float.shape)
+            # for i in range(len(ids)):
+            print("Line:468 cnt value",cnt)
+            print("Line:469 pred_mask_float min,max values before division by cnt:",np.min(pred_mask_float), np.max(pred_mask_float), np.unique(pred_mask_float))
+            msk_pred = pred_mask_float / cnt
+            print("Line:471 pred_mask min,max values after division by cnt:",np.min(msk_pred), np.max(msk_pred), np.unique(msk_pred))
+            msk_pred_scaled = msk_pred * 255
+            print("Line:471 msk_pred min,max values after multiplying by 255:",np.min(msk_pred_scaled), np.max(msk_pred_scaled), np.unique(msk_pred_scaled))
+            # msk_pred = (msk_pred * 255).astype('uint8')
+            # pred_mask_float = msk_pred
+        ### 
+            # resize
+            pred_mask_float = np.vstack([cv2.resize(_mask.astype(np.float32), (orig_w[0], orig_h[0]))[None] for _mask in msk_pred_scaled])
+            # msk_stack = np.vstack([msk[None] for msk in msk_preds])
+            pred_mask_int = pred_mask_float#.astype(np.uint8)#(pred_mask_float>organ_threshold[data_source][organ]).astype(np.uint8) # set organ threshold for prediction
+            pred_mask_int = (pred_mask_float>organ_threshold[data_source][organ]).astype(np.uint8)
+            print("Line:475 pred_mask_int shape, bs",pred_mask_int.shape, bs)
+            for j in range(bs):
+                py0,py1,px0,px1 = sample['p'][j]
+                qy0,qy1,qx0,qx1 = sample['q'][j]
+                pred_mask[st_ind+j,0:py1-py0, 0:px1-px0] = pred_mask_int[j, py0-qy0:py1-qy0, px0-qx0:px1-qx0] # (pred_sz,pred_sz)
+            
+            st_ind += bs#len(ids)
+
+        pred_mask = pred_mask.reshape(test_data.num_h*test_data.num_w, test_data.pred_sz, test_data.pred_sz).reshape(test_data.num_h, test_data.num_w, test_data.pred_sz, test_data.pred_sz)
+        pred_mask = pred_mask.transpose(0,2,1,3).reshape(test_data.num_h*test_data.pred_sz, test_data.num_w*test_data.pred_sz)
+
+        pred_mask = pred_mask[:test_data.h,:test_data.w] # back to the original slide size
+        ###
+        # non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
     # cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
     OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif')
 
@@ -529,19 +565,23 @@ if __name__ == '__main__':
         im_path = row['id']
         organ = row['organ']
         data_source = row['data_source']
+
         
+
         for param in params:
             img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source, args.inference_mode)
+            print('Line 554: img_pred min,max values, shape before thresholding', np.min(img_pred), np.max(img_pred), img_pred.shape)
             preds.append(img_pred * param['weight'])
 
-        # pred_mask = np.asarray(preds).sum(axis=0)
-        pred_mask = np.mean(np.asarray(preds))
+        pred_mask = np.asarray(preds).sum(axis=0)
+        # pred_mask = np.mean(np.asarray(preds))
         
-        _thr = organ_threshold[data_source][organ]
+        _thr = 0.5#organ_threshold[data_source][organ]
         pred_mask_thr = (pred_mask > _thr).astype(np.uint8)
         print('Threshold value ',_thr)
         print('the mask shape is ',pred_mask_thr.shape)
         print('Mask unique values before thresholding', np.unique(pred_mask))
+        print('Mask min,max values before thresholding', np.min(pred_mask), np.max(pred_mask))
         print('Mask unique values after thresholding', np.unique(pred_mask_thr))
         
         OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{fname}_mask.ome.tif')
