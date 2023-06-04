@@ -65,7 +65,7 @@ Steps to build the docker image:
 3. Keep the `–netwrok=host` parameter to enable internet connection inside the
 docker container. `multiftu` is the name we have defined for the container.
 4. You can check if docker image was successfully created using: `docker image ls`
-5. Run the docker container using : `docker run -v $PWD/data:/data -v $PWD/output:/output --gpus all -it multiftu python3 inference.py --inference_mode fast`
+5. Run the docker container using : `docker run -v $PWD/data:/data -v $PWD/output:/output -v $PWD/weights:/opt/weights --gpus all -it multiftu python3 inference.py --data_directory /data --output_directory /output --tissue_type kidney --inference_mode fast`. Optionally, give a `--config_file path_to_config.json`.
 6. `$PWD/data:/data` mounts a local directory containing your input image. `$PWD/output:/output` mounts a local directory to the container where the output will be saved. [Optional for testing: `$PWD/weights:/opt/weights` mounts a local directory containing your model weights, see point 10 below.] 
 7. You can also use this command to enter the container: `docker run --gpus all -it multiftu /bin/bash`
 8. Use `–-gpus` parameter to dedicate gpus to the docker container.

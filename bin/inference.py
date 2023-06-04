@@ -24,29 +24,42 @@ from torch import nn
 from torch.backends import cudnn
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from pathlib import Path
+from typing import Iterable
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
 cudnn.benchmark = True
-##Load config json
-file = open('config.json')
-data = json.load(file)
-file.close()
+# amp_autocast = suppress
+amp_autocast = torch.cuda.amp.autocast
 
-config = data["predict"]
-test_df = pd.read_csv(config["test_df"])
 
-# data_dir = '.'
-data_dir = config['data_dir']
-output_dir = config['output_dir']
-# data_dir = '../input/hubmap-organ-segmentation'
-models_folder = config['models_folder']
-# models_folder1 = config['models_folder1']
-# models_folder2 = config['models_folder2']
-# models_folder = '../input/subweights0/'
-
-# df = pd.read_csv(path.join(data_dir, 'test.csv'))
-
+supported_file_types = [".ome.tif",".tiff",".tif"]
 supported_tissue_types = ['prostate', 'spleen', 'lung', 'kidney', 'largeintestine']
+
+def fix_seed(seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+fix_seed(2023)
+
+def get_config(configpath):
+    file = open(configpath)
+    data = json.load(file)
+    file.close()
+    return data
+
+
+def find_files(directory: Path, pattern: str) -> Iterable[Path]:
+    for dirpath_str, dirnames, filenames in os.walk(directory):
+        dirpath = Path(dirpath_str)
+        for filename in filenames:
+            filepath = dirpath / filename
+            if filepath.match(pattern):
+                yield filepath
 
 class HuBMAPDataset(Dataset):
     def __init__(self, im_path, config,organ,new_size):
@@ -110,7 +123,7 @@ class HuBMAPDataset(Dataset):
                 img[0:qy1-qy0, 0:qx1-qx0, i] =\
                     layer.read(1,window=Window.from_slices((qy0,qy1),(qx0,qx1)))
 
-        sample = {'id': self.im_path.split("/")[-1].split('.')[:-1], 
+        sample = {'id': self.im_path.stem.split('.')[:-1], 
                   'organ': self.organ, 
                   'orig_h': self.sz, 
                   'orig_w': self.sz,
@@ -118,19 +131,11 @@ class HuBMAPDataset(Dataset):
                   "q":[qy0,qy1,qx0,qx1]}
 
         if self.sz != self.input_sz:
-
             img = cv2.resize(img, self.input_sz, interpolation=cv2.INTER_AREA)
 
         img = preprocess_inputs(img)
         img = torch.from_numpy(img.transpose((2, 0, 1)).copy()).float()
-
-        i=0
-        sample['img{}'.format(i)] = img
-        """""
-        if self.sz != self.input_sz:
-            img = cv2.resize(img, (self.input_sz, self.input_sz), interpolation=cv2.INTER_AREA)
-        return {'img':img, 'p':[py0,py1,px0,px1], 'q':[qy0,qy1,qx0,qx1]}
-        """
+        sample['img'] = img
         return sample
 
 def preprocess_inputs(x):
@@ -138,37 +143,6 @@ def preprocess_inputs(x):
     x /= 127
     x -= 1
     return x
-
-class TestDataset(Dataset):
-    def __init__(self, df, data_dir='test_images', new_size=None):
-        super().__init__()
-        self.df = df
-        self.data_dir = data_dir
-        self.new_size = new_size
-
-    def __len__(self):
-        return len(self.df)
-
-
-    def __getitem__(self, idx):
-        r = self.df.iloc[idx]
-
-        img0 = cv2.imread(path.join(self.data_dir, '{}.tiff'.format(r['id'])), cv2.IMREAD_UNCHANGED)
-
-        orig_shape = img0.shape
-
-        sample = {'id': r['id'], 'organ': r['organ'], 'data_source': r['data_source'], 'orig_h': orig_shape[0], 'orig_w': orig_shape[1]}
-
-        for i in range(len(self.new_size)):
-
-            img = cv2.resize(img0, self.new_size[i])
-
-            img = preprocess_inputs(img)
-            img = torch.from_numpy(img.transpose((2, 0, 1)).copy()).float()
-
-            sample['img{}'.format(i)] = img
-
-        return sample
     
 def my_collate_fn(batch):
     img = []
@@ -179,7 +153,7 @@ def my_collate_fn(batch):
     orig_w=[] # Tile size (resolution without resize); equal to self.sz = config['resolution']
     organ=[]
     for sample in batch:
-        img.append(sample['img0'])
+        img.append(sample['img'])
         p.append(sample['p'])
         q.append(sample['q'])
         id.append(sample['id'])
@@ -189,7 +163,6 @@ def my_collate_fn(batch):
 
     img = torch.stack(img)
     return {'img':img, 'p':p, 'q':q,'id':id,'orig_h':orig_h,'orig_w':orig_w,'organ':organ}
-
 
 class ConvSilu(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3):
@@ -294,45 +267,33 @@ class Timm_Unet(nn.Module):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
 
-test_batch_size = config['test_batch_size']
+def get_params(models_folder):
+    params = [
+        {'size': (768, 768), 'models': [
+                                        ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_768_e34_{}_best', models_folder, 1), 
+                                        ('convnext_large_384_in22ft1k', 'convnext_large_384_in22ft1k_768_e37_{}_best', models_folder, 1),
+                                        ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_768_e36_{}_best', models_folder, 1), 
+                                        ('coat_lite_medium', 'coat_lite_medium_768_e40_{}_best', models_folder, 3),
+                                    ],
+                            'pred_dir': 'test_pred_768', 'weight': 0.2},
+        {'size': (1024, 1024), 'models': [
+                                        ('convnext_large_384_in22ft1k', 'convnext_large_384_in22ft1k_1024_e32_{}_best', models_folder, 1), 
+                                        ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_1024_e33_{}_best', models_folder, 1),
+                                        ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_1024_e38_{}_best', models_folder, 1),
+                                        ('coat_lite_medium', 'coat_lite_medium_1024_e41_{}_best', models_folder, 3),
+                                    ],
+                            'pred_dir': 'test_pred_1024', 'weight': 0.3},
+        {'size': (1472, 1472), 'models': [
+                                        ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_1472_e35_{}_best', models_folder, 1),
+                                        ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_1472_e39_{}_best', models_folder, 1),
+                                        ('coat_lite_medium', 'coat_lite_medium_1472_e42_{}_best', models_folder, 3),
+                                    ],
+                            'pred_dir': 'test_pred_1472', 'weight': 0.5},
+    ]
+    return params
 
-# amp_autocast = suppress
-amp_autocast = torch.cuda.amp.autocast
-
-# half_size = True
-
-hubmap_only = False #True #False
-
-# thresholds on a scale of 0-255
-organ_threshold = config['organ_threshold']
-
-params = [
-    {'size': (768, 768), 'models': [
-                                    ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_768_e34_{}_best', models_folder, 1), 
-                                    ('convnext_large_384_in22ft1k', 'convnext_large_384_in22ft1k_768_e37_{}_best', models_folder, 1),
-                                    ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_768_e36_{}_best', models_folder, 1), 
-                                    ('coat_lite_medium', 'coat_lite_medium_768_e40_{}_best', models_folder, 3),
-                                   ],
-                         'pred_dir': 'test_pred_768', 'weight': 0.2},
-    {'size': (1024, 1024), 'models': [
-                                      ('convnext_large_384_in22ft1k', 'convnext_large_384_in22ft1k_1024_e32_{}_best', models_folder, 1), 
-                                      ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_1024_e33_{}_best', models_folder, 1),
-                                      ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_1024_e38_{}_best', models_folder, 1),
-                                    ('coat_lite_medium', 'coat_lite_medium_1024_e41_{}_best', models_folder, 3),
-                                   ],
-                         'pred_dir': 'test_pred_1024', 'weight': 0.3},
-    {'size': (1472, 1472), 'models': [
-                                    ('tf_efficientnet_b7_ns', 'tf_efficientnet_b7_ns_1472_e35_{}_best', models_folder, 1),
-                                    ('tf_efficientnetv2_l_in21ft1k', 'tf_efficientnetv2_l_in21ft1k_1472_e39_{}_best', models_folder, 1),
-                                    ('coat_lite_medium', 'coat_lite_medium_1472_e42_{}_best', models_folder, 3),
-                                   ],
-                         'pred_dir': 'test_pred_1472', 'weight': 0.5},
-]
-
-def predict_models(param,im_path,organ,data_source, inference_mode):
+def load_models(param, inference_mode):
     print(param)
-    makedirs(param['pred_dir'], exist_ok=True)
-    pred_dir = param['pred_dir']
     torch.cuda.empty_cache()
     gc.collect()
     models=[]
@@ -366,20 +327,21 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
                 model = model.eval().cuda()
                 models.append((model, model_weight))
 
-
-            # model = model.eval().cuda()
-            # models.append((model, model_weight))
         if inference_mode == "fast":
             model = best_model.eval().cuda()
             models.append((model, model_weight))
             print("Fast Inference Mode: loaded (model {}, fold {}, best_score {})".format(model_name, best_fold, 
                 best_score))
+    return models
+
+def predict_models(param,im_path, organ, inference_mode, config):
+    models = load_models(param, inference_mode)
 
     torch.cuda.empty_cache()
     with torch.inference_mode():
-        im_path = data_dir+'/'+im_path
-        fname = im_path.split('/')[-1].split('.')[0]
-        
+        test_batch_size = config['test_batch_size']
+        organ_threshold = config['organ_threshold']
+        data_source = config['data_source']
         test_data = HuBMAPDataset(im_path,config,organ,param['size'])
         test_data_loader = DataLoader(test_data, batch_size=test_batch_size, num_workers=0, shuffle=False,collate_fn=my_collate_fn, pin_memory=True)
         
@@ -389,20 +351,12 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
 
         for sample in tqdm(test_data_loader):
             bs = sample['img'].shape[0]
-            ids = sample['id']
             orig_w = np.array(sample["orig_w"])
             orig_h = np.array(sample["orig_h"])
-            # if hubmap_only and (data_source[0] != 'Hubmap'):
-            #     continue
-            # msk_preds = []
-            # for i in range(0, len(ids), 1):
-            # print(f"Line 416: Orig_h,Orig_w:{orig_h},{orig_w}")
-            # msk_preds.append(np.zeros((orig_h[0], orig_w[0]), dtype='float32'))
             
             cnt = 0
             pred_mask_float = 0
             imgs = sample["img"].cpu().numpy()
-            # print(f"Line 422: imgs shape:{imgs.shape}")
             with amp_autocast():
                 for _tta in range(4): #8
                     _i = _tta // 2
@@ -423,7 +377,6 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
 
                     inp = torch.from_numpy(inp).float().cuda()                 
                     torch.cuda.empty_cache()
-                    # print(f"Number of models : {len(models)}")
                     for model, model_weight in models:
                         out, res_cls, res_pix = model(inp)
                         msk_pred = torch.sigmoid(out).cpu().numpy()
@@ -440,54 +393,38 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
 
                         cnt += model_weight
 
-                        # for i in range(len(ids)):
-                        # pred_mask_float += model_weight * cv2.resize(msk_pred[0, 0].astype('float32'), (orig_w[0], orig_h[0]))
-                        # print("Line:462",msk_pred.shape, msk_pred[:,0,:,:].shape)
                         pred_mask_float += model_weight * msk_pred[:,0,:,:].astype('float32')
                 del inp
                 torch.cuda.empty_cache()
-            # print("Line:465",pred_mask_float.shape)
-            # for i in range(len(ids)):
-            # print("Line:468 cnt value",cnt)
-            # print("Line:469 pred_mask_float min,max values before division by cnt:",np.min(pred_mask_float), np.max(pred_mask_float), np.unique(pred_mask_float))
+            
             msk_pred = pred_mask_float / cnt
-            # print("Line:471 pred_mask min,max values after division by cnt:",np.min(msk_pred), np.max(msk_pred), np.unique(msk_pred))
             msk_pred_scaled = msk_pred * 255
-            # print("Line:471 msk_pred min,max values after multiplying by 255:",np.min(msk_pred_scaled), np.max(msk_pred_scaled), np.unique(msk_pred_scaled))
-            # msk_pred = (msk_pred * 255).astype('uint8')
-            # pred_mask_float = msk_pred
         
             # resize
             pred_mask_float = np.vstack([cv2.resize(_mask.astype(np.float32), (orig_w[0], orig_h[0]))[None] for _mask in msk_pred_scaled])
-            # msk_stack = np.vstack([msk[None] for msk in msk_preds])
-            # pred_mask_int = pred_mask_float#.astype(np.uint8)#(pred_mask_float>organ_threshold[data_source][organ]).astype(np.uint8) # set organ threshold for prediction
             pred_mask_int = (pred_mask_float>organ_threshold[data_source][organ]).astype(np.uint8)
-            # pred_mask_int = pred_mask_float # TODO: For testing to see probability maps without thresholding, replace with line above.
-            # print("Line:475 pred_mask_int shape, bs",pred_mask_int.shape, bs)
+            # pred_mask_int = pred_mask_float # For testing to see probability maps without thresholding, replace with line above. Define pred_mask as float
             for j in range(bs):
                 py0,py1,px0,px1 = sample['p'][j]
                 qy0,qy1,qx0,qx1 = sample['q'][j]
                 pred_mask[st_ind+j,0:py1-py0, 0:px1-px0] = pred_mask_int[j, py0-qy0:py1-qy0, px0-qx0:px1-qx0] # (pred_sz,pred_sz)
             
-            st_ind += bs#len(ids)
+            st_ind += bs
 
         pred_mask = pred_mask.reshape(test_data.num_h*test_data.num_w, test_data.pred_sz, test_data.pred_sz).reshape(test_data.num_h, test_data.num_w, test_data.pred_sz, test_data.pred_sz)
         pred_mask = pred_mask.transpose(0,2,1,3).reshape(test_data.num_h*test_data.pred_sz, test_data.num_w*test_data.pred_sz)
 
         pred_mask = pred_mask[:test_data.h,:test_data.w] # back to the original slide size
         
-        # non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
-    # cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
-    # OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif') # TODO: Only for testing. Remove later.
+    # OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif') #  Only for testing. To save intermediary predictions.
 
     del models
     torch.cuda.empty_cache()
     gc.collect()
 
-    return pred_mask, pred_dir, fname
+    return pred_mask
 
 def mask2json(mask, organ):
-    # contours = measure.find_contours(mask) #(mask, 0.8)
     # contour to polygon
     contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -519,50 +456,87 @@ def mask2json(mask, organ):
 
     return geojson_list
 
-if __name__ == '__main__':
-    t0 = timeit.default_timer()
-    p = ArgumentParser()
-    p.add_argument('--inference_mode', type=str, choices=['default','fast'], default='default') # default (general) or fast
-    args = p.parse_args()
-    # print(args.inference_mode)
-    # print(type(args.inference_mode))
-
+def main(data_directory: Path, tissue_type:str, inference_mode:str, output_directory: Path, config_file: Path):
     if args.inference_mode == "fast":
         print("!!!RUNNING IN FAST INFERENCE MODE!!!")
     else:
         print("!!!RUNNING IN NORMAL INFERENCE MODE!!!")
 
-    for ind,row in test_df.iterrows():
-        preds=[]
-        im_path = row['id']
-        organ = row['organ']
-        data_source = row['data_source']
+    if tissue_type not in supported_tissue_types:
+        raise ValueError(f"Type {tissue_type} not supported, only: {', '.join(supported_tissue_types)}")
 
+    file_template = "*.tif*"
+    image_paths = list(find_files(data_directory, file_template))
+    print(f"Found files: {image_paths}")
+    print(f"file template: {file_template}")
+
+    if config_file is None:
+        configpath = 'config.json'
+        print("Using default config.json")
+    else:
+        configpath = config_file
+        print(f"Using '{config}' as the output directory")
+    
+    config = get_config(configpath)["predict"] 
+    output_dir = config['output_dir']
+    models_folder = config['models_folder']
+    
+    organ_threshold = config['organ_threshold'] # thresholds on a scale of 0-255
+
+    params = get_params(models_folder)
+
+    if output_directory is None:
+        output_dir = config['output_dir']
+        print("Using default output directory defined in config.json")
+    else:
+        output_dir = output_directory
+        print(f"Using '{output_dir}' as the output directory")
+
+    for image_path in image_paths:
+        path_stem = image_path.stem.split('.')[0]
+        preds=[]
+        im_path = image_path 
+        organ = tissue_type
+        
+        print(f"Image Path is: {image_path} and stem is: {path_stem}")
+        
         for param in params:
-            img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source, args.inference_mode)
-            # print('Line 554: img_pred min,max values, shape before thresholding', np.min(img_pred), np.max(img_pred), img_pred.shape)
+            img_pred = predict_models(param, im_path, organ, args.inference_mode, config)
             preds.append(img_pred * param['weight'])
 
         pred_mask = np.asarray(preds).sum(axis=0)
-        # pred_mask = np.mean(np.asarray(preds))
         
         #Final threshold
-        _thr = config['final_threshold'] #0.7#organ_threshold[data_source][organ] # initial: 0.5
+        _thr = config['final_threshold']
         pred_mask_thr = (pred_mask > _thr).astype(np.uint8)
-        print('Organ Threshold value ',organ_threshold[data_source][organ])
+        print('Organ Threshold value ',organ_threshold)
         print('Final Threshold value ',_thr)
         print('the mask shape is ',pred_mask_thr.shape)
         print('Mask unique values before thresholding', np.unique(pred_mask))
         print('Mask min,max values before thresholding', np.min(pred_mask), np.max(pred_mask))
         print('Mask unique values after thresholding', np.unique(pred_mask_thr))
         
-        OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{fname}_mask.ome.tif')
+        OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{path_stem}_mask.ome.tif')
         
         json_mask = mask2json(pred_mask_thr, organ)        
-        with open(f'{output_dir}/{fname}_mask.json', "w") as f:
+        with open(f'{output_dir}/{path_stem}_mask.json', "w") as f:
                 json.dump(json_mask,f)
         
         print('json and img saved')
-        elapsed = timeit.default_timer() - t0
-        print('Total Processing Time: {:.3f} min'.format(elapsed / 60))
+        
 
+if __name__ == '__main__':
+    t0 = timeit.default_timer()
+    
+    p = ArgumentParser()
+    p.add_argument('--data_directory', type=Path)
+    p.add_argument('--output_directory', type=Path, default=None)
+    p.add_argument('--tissue_type', type=str, choices=['kidney','largeintestine','lung','prostate','spleen'])
+    p.add_argument('--inference_mode', type=str, choices=['normal','fast'], default='fast') # default (general) or fast
+    p.add_argument('--config_file', type=Path, default=None)
+    args = p.parse_args()
+    
+    main(args.data_directory, args.tissue_type, args.inference_mode,args.output_directory, args.config_file)
+    
+    elapsed = timeit.default_timer() - t0
+    print('Total Processing Time: {:.3f} min'.format(elapsed / 60))

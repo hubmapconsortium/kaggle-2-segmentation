@@ -22,6 +22,7 @@
         "pad_size":1024,
         "csv_path":"/data/hickey_test.csv",
         "output_dir": "/output",
+        "data_source":"Hubmap",
         "organ_threshold" : {
             "Hubmap": {
                 "kidney"        : 204,
