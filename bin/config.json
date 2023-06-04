@@ -17,11 +17,28 @@
         "output_csv_path":"submission.csv",
         "model_ckpt":"./weights/coat_lite_medium_384x384_f9129688.pth",
         "test_batch_size":1,
-        "resolution":3072, 
+        "resolution":5092, 
         "test_df":"/data/test_final.csv",
-        "pad_size":256,
+        "pad_size":1024,
         "csv_path":"/data/hickey_test.csv",
-        "output_dir": "/output"
+        "output_dir": "/output",
+        "organ_threshold" : {
+            "Hubmap": {
+                "kidney"        : 204,
+                "prostate"      : 100,
+                "largeintestine": 80,
+                "spleen"        : 100,
+                "lung"          : 15
+            },
+            "HPA": {
+                "kidney"        : 127,
+                "prostate"      : 127,
+                "largeintestine": 127,
+                "spleen"        : 127,
+                "lung"          : 25
+            }
+        },
+        "final_threshold": 0.7
         
     },
     "pred_val":{
