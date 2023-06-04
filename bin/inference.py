@@ -175,8 +175,8 @@ def my_collate_fn(batch):
     p = []
     q = []
     id=[]
-    orig_h=[]
-    orig_w=[]
+    orig_h=[] # Tile size (resolution without resize); equal to self.sz = config['resolution']
+    orig_w=[] # Tile size (resolution without resize); equal to self.sz = config['resolution']
     organ=[]
     for sample in batch:
         img.append(sample['img0'])
@@ -303,22 +303,8 @@ amp_autocast = torch.cuda.amp.autocast
 
 hubmap_only = False #True #False
 
-organ_threshold = {
-    'Hubmap': {
-        'kidney'        : 90,
-        'prostate'      : 100,
-        'largeintestine': 80,
-        'spleen'        : 100,
-        'lung'          : 15,
-    },
-    'HPA': {
-        'kidney'        : 127,
-        'prostate'      : 127,
-        'largeintestine': 127,
-        'spleen'        : 127,
-        'lung'          : 25,
-    },
-}
+# thresholds on a scale of 0-255
+organ_threshold = config['organ_threshold']
 
 params = [
     {'size': (768, 768), 'models': [
@@ -410,13 +396,13 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
             #     continue
             # msk_preds = []
             # for i in range(0, len(ids), 1):
-            print(f"Line 416: Orig_h,Orig_w:{orig_h},{orig_w}")
+            # print(f"Line 416: Orig_h,Orig_w:{orig_h},{orig_w}")
             # msk_preds.append(np.zeros((orig_h[0], orig_w[0]), dtype='float32'))
             
             cnt = 0
             pred_mask_float = 0
             imgs = sample["img"].cpu().numpy()
-            print(f"Line 422: imgs shape:{imgs.shape}")
+            # print(f"Line 422: imgs shape:{imgs.shape}")
             with amp_autocast():
                 for _tta in range(4): #8
                     _i = _tta // 2
@@ -460,23 +446,24 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
                         pred_mask_float += model_weight * msk_pred[:,0,:,:].astype('float32')
                 del inp
                 torch.cuda.empty_cache()
-            print("Line:465",pred_mask_float.shape)
+            # print("Line:465",pred_mask_float.shape)
             # for i in range(len(ids)):
-            print("Line:468 cnt value",cnt)
-            print("Line:469 pred_mask_float min,max values before division by cnt:",np.min(pred_mask_float), np.max(pred_mask_float), np.unique(pred_mask_float))
+            # print("Line:468 cnt value",cnt)
+            # print("Line:469 pred_mask_float min,max values before division by cnt:",np.min(pred_mask_float), np.max(pred_mask_float), np.unique(pred_mask_float))
             msk_pred = pred_mask_float / cnt
-            print("Line:471 pred_mask min,max values after division by cnt:",np.min(msk_pred), np.max(msk_pred), np.unique(msk_pred))
+            # print("Line:471 pred_mask min,max values after division by cnt:",np.min(msk_pred), np.max(msk_pred), np.unique(msk_pred))
             msk_pred_scaled = msk_pred * 255
-            print("Line:471 msk_pred min,max values after multiplying by 255:",np.min(msk_pred_scaled), np.max(msk_pred_scaled), np.unique(msk_pred_scaled))
+            # print("Line:471 msk_pred min,max values after multiplying by 255:",np.min(msk_pred_scaled), np.max(msk_pred_scaled), np.unique(msk_pred_scaled))
             # msk_pred = (msk_pred * 255).astype('uint8')
             # pred_mask_float = msk_pred
         
             # resize
             pred_mask_float = np.vstack([cv2.resize(_mask.astype(np.float32), (orig_w[0], orig_h[0]))[None] for _mask in msk_pred_scaled])
             # msk_stack = np.vstack([msk[None] for msk in msk_preds])
-            pred_mask_int = pred_mask_float#.astype(np.uint8)#(pred_mask_float>organ_threshold[data_source][organ]).astype(np.uint8) # set organ threshold for prediction
+            # pred_mask_int = pred_mask_float#.astype(np.uint8)#(pred_mask_float>organ_threshold[data_source][organ]).astype(np.uint8) # set organ threshold for prediction
             pred_mask_int = (pred_mask_float>organ_threshold[data_source][organ]).astype(np.uint8)
-            print("Line:475 pred_mask_int shape, bs",pred_mask_int.shape, bs)
+            # pred_mask_int = pred_mask_float # TODO: For testing to see probability maps without thresholding, replace with line above.
+            # print("Line:475 pred_mask_int shape, bs",pred_mask_int.shape, bs)
             for j in range(bs):
                 py0,py1,px0,px1 = sample['p'][j]
                 qy0,qy1,qx0,qx1 = sample['q'][j]
@@ -491,7 +478,7 @@ def predict_models(param,im_path,organ,data_source, inference_mode):
         
         # non_zero_ratio = (pred_mask).sum() / (test_data.h*test_data.w)
     # cv.imwrite(f'{output_dir}/{pred_dir}_{fname}_new.png',pred_mask)
-    OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif') # TODO: Only for testing. Remove later.
+    # OmeTiffWriter.save(pred_mask, f'{output_dir}/{pred_dir}_{fname}.ome.tif') # TODO: Only for testing. Remove later.
 
     del models
     torch.cuda.empty_cache()
@@ -553,15 +540,17 @@ if __name__ == '__main__':
 
         for param in params:
             img_pred, pred_dir, fname = predict_models(param,im_path,organ,data_source, args.inference_mode)
-            print('Line 554: img_pred min,max values, shape before thresholding', np.min(img_pred), np.max(img_pred), img_pred.shape)
+            # print('Line 554: img_pred min,max values, shape before thresholding', np.min(img_pred), np.max(img_pred), img_pred.shape)
             preds.append(img_pred * param['weight'])
 
         pred_mask = np.asarray(preds).sum(axis=0)
         # pred_mask = np.mean(np.asarray(preds))
         
-        _thr = 0.5#organ_threshold[data_source][organ]
+        #Final threshold
+        _thr = config['final_threshold'] #0.7#organ_threshold[data_source][organ] # initial: 0.5
         pred_mask_thr = (pred_mask > _thr).astype(np.uint8)
-        print('Threshold value ',_thr)
+        print('Organ Threshold value ',organ_threshold[data_source][organ])
+        print('Final Threshold value ',_thr)
         print('the mask shape is ',pred_mask_thr.shape)
         print('Mask unique values before thresholding', np.unique(pred_mask))
         print('Mask min,max values before thresholding', np.min(pred_mask), np.max(pred_mask))
