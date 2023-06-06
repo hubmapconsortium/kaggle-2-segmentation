@@ -16,7 +16,7 @@ docker container. `multiftu` is the name we have defined for the container.
 7. You can also use this command to enter the container: `docker run --gpus all -it multiftu /bin/bash`
 8. Use `–-gpus` parameter to dedicate gpus to the docker container.
 9. You can check docker container status by using: `docker ps -a`
-10. Trained model weights can be downloaded from: (https://zenodo.org/record/7996245)[https://zenodo.org/record/7996245]. For testing, download weights and save in a dir `weights` in the root directory of the repository. Use `test_build_and_run.sh` for building the container and running the inference script. For production, uncomment the last line that's currently commented in dockerfile which will download all weights to the model during docker build.
+10. Trained model weights can be downloaded from: (https://zenodo.org/record/7996245). For testing, download weights and save in a dir `weights` in the root directory of the repository. Use `test_build_and_run.sh` for building the container and running the inference script. For production, uncomment the last line that's currently commented in dockerfile which will download all weights to the model during docker build.
 
 **Packaging the K2 inference script docker**
 1. Base image:
