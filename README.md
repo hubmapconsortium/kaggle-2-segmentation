@@ -18,7 +18,7 @@ docker container. `multiftu` is the name we have defined for the container.
 9. You can check docker container status by using: `docker ps -a`
 10. Trained model weights can be downloaded from: (https://zenodo.org/record/7996245). For testing, download weights and save in a dir `weights` in the root directory of the repository. Use `test_build_and_run.sh` for building the container and running the inference script. For production, uncomment the last line that's currently commented in dockerfile which will download all weights to the model during docker build.
 
-**Packaging the K2 inference script docker**
+**Details regarding containerizing the model into docker**
 1. Base image:
     a. Use a nvidia cuda image as a base image.
     b. Ensure to use the devel version for further building the docker image on it.
@@ -45,7 +45,7 @@ docker container. `multiftu` is the name we have defined for the container.
     a. Install the pytorch package separately as it has a complex installation.
     b. All the required packages are listed in the requirements.txt
 4. Prediction files:
-    a. Copy the prediction script files from the k2_inf folder into the container.
+    a. Copy the prediction script files from the bin folder into the container.
     b. Model weights and data files are not present on github due to size constraints. (Can be downloaded from *https://zenodo.org/record/7996245*)
     c. Model weights are in the .pb format and image data supported are: ome-tiff, tif, tiff.
     d. The model input locations and output locations along with other configurations can be accessed and changed via the conifg.json file
