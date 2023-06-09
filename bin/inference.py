@@ -490,6 +490,11 @@ def main(data_directory: Path, tissue_type:str, inference_mode:str, output_direc
         print("Using default output directory defined in config.json")
     else:
         output_dir = output_directory
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            print(f"Directory '{output_dir}' created successfully!")
+        else:
+            print(f"Directory '{output_dir}' already exists.")
         print(f"Using '{output_dir}' as the output directory")
 
     for image_path in image_paths:
