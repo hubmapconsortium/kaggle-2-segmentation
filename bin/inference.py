@@ -175,7 +175,7 @@ class ConvSilu(nn.Module):
         return self.layer(x)
 
 class Timm_Unet(nn.Module):
-    def __init__(self, name='resnet34', pretrained=True, inp_size=3, otp_size=1, decoder_filters=[32, 48, 64, 96, 128], **kwargs):
+    def __init__(self, name='resnet34', pretrained=True, inp_size=3, otp_size=1, decoder_filters=[32, 48, 64, 96, 128], config=None, **kwargs):
         super(Timm_Unet, self).__init__()
 
         if name.startswith('coat'):
@@ -292,7 +292,7 @@ def get_params(models_folder):
     ]
     return params
 
-def load_models(param, inference_mode):
+def load_models(param, inference_mode, config):
     print(param)
     torch.cuda.empty_cache()
     gc.collect()
@@ -303,7 +303,7 @@ def load_models(param, inference_mode):
         best_fold = -1
         best_score = -1
         for fold in range(5):
-            model = Timm_Unet(name=model_name, pretrained=None)
+            model = Timm_Unet(name=model_name, pretrained=None, config=config)
             snap_to_load = checkpoint_name.format(fold)
             print("=> loading checkpoint '{}'".format(snap_to_load))
             checkpoint = torch.load(path.join(checkpoint_dir, snap_to_load), map_location='cpu')
@@ -335,7 +335,7 @@ def load_models(param, inference_mode):
     return models
 
 def predict_models(param,im_path, organ, inference_mode, config):
-    models = load_models(param, inference_mode)
+    models = load_models(param, inference_mode, config)
 
     torch.cuda.empty_cache()
     with torch.inference_mode():
