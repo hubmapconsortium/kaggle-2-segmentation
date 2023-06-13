@@ -27,7 +27,7 @@
             "Hubmap": {
                 "kidney"        : 204,
                 "prostate"      : 100,
-                "largeintestine": 80,
+                "largeintestine": 100,
                 "spleen"        : 100,
                 "lung"          : 15
             },
