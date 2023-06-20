@@ -28,7 +28,7 @@
                 "kidney"        : 204,
                 "prostate"      : 100,
                 "largeintestine": 100,
-                "spleen"        : 100,
+                "spleen"        : 160,
                 "lung"          : 15
             },
             "HPA": {
