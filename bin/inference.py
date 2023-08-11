@@ -35,6 +35,11 @@ amp_autocast = torch.cuda.amp.autocast
 
 supported_file_types = [".ome.tif",".tiff",".tif"]
 supported_tissue_types = ['prostate', 'spleen', 'lung', 'kidney', 'largeintestine']
+ftu_dict = {'lung':'alveolus',
+            'kidney': 'glomerulus',
+            'prostate':'glandular acinus',
+            'spleen':'white pulp',
+            'largeintestine':'crypt'}
 
 def fix_seed(seed):
     random.seed(seed)
@@ -440,6 +445,7 @@ def mask2json(mask, organ):
         "properties": {
             "classification": {
                 "name": organ,
+                "ftu":ftu_dict[organ],
                 "colorRGB": -3140401
             },
             "isLocked": True,
@@ -451,7 +457,7 @@ def mask2json(mask, organ):
     for i, polygon in enumerate(contours):
         geojson_dict = copy.deepcopy(geojson_dict_template)
         geojson_dict["properties"]["classification"]["colorRGB"] = i
-        geojson_dict["geometry"]["coordinates"].extend([x[0] for x in polygon.tolist()]+[polygon.tolist()[0][0]])
+        geojson_dict["geometry"]["coordinates"].extend([[x[0] for x in polygon.tolist()]+[polygon.tolist()[0][0]]])
         geojson_list.append(geojson_dict)
 
     return geojson_list
@@ -475,7 +481,7 @@ def main(data_directory: Path, tissue_type:str, inference_mode:str, output_direc
         print("Using default config.json")
     else:
         configpath = config_file
-        print(f"Using '{config}' as the output directory")
+        print(f"Using '{configpath}' as the output directory")
     
     config = get_config(configpath)["predict"] 
     output_dir = config['output_dir']
