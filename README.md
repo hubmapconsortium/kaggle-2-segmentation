@@ -8,7 +8,7 @@ Steps to build the docker image:
 
 1. Navigate into `hra-multiftu-segmentation-pipeline` directory.
 2. Build docker using following command: `docker build -f docker/Dockerfile.v2 --network=host -t multiftu .`
-3. Keep the `–network=host` parameter to enable internet connection inside the
+3. Keep the `–-network=host` parameter to enable internet connection inside the
 docker container. `multiftu` is the name we have defined for the container.
 4. You can check if docker image was successfully created using: `docker image ls`
 5. Run the docker container using : `docker run --rm --user=$(id -u):$(id -g) -v $PWD/data:/data -v $PWD/output:/output -v $PWD/weights:/opt/weights --gpus all -it multiftu python3 inference.py --data_directory /data --output_directory /output --tissue_type kidney --inference_mode fast`. Optionally, give a `--config_file path_to_config.json`.
