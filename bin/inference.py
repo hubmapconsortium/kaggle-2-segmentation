@@ -444,6 +444,7 @@ def mask2json(mask, organ):
         },
         "properties": {
             "classification": {
+                "ftu_id": -1,
                 "name": organ,
                 "ftu":ftu_dict[organ],
                 "colorRGB": -3140401
@@ -456,7 +457,7 @@ def mask2json(mask, organ):
     geojson_list = []
     for i, polygon in enumerate(contours):
         geojson_dict = copy.deepcopy(geojson_dict_template)
-        geojson_dict["properties"]["classification"]["colorRGB"] = i
+        geojson_dict["properties"]["classification"]["ftu_id"] = i
         geojson_dict["geometry"]["coordinates"].extend([[x[0] for x in polygon.tolist()]+[polygon.tolist()[0][0]]])
         geojson_list.append(geojson_dict)
 
