@@ -1,0 +1,1 @@
+hubmap/kaggle-2-segmentation	docker/Dockerfile.v2	base_directory_build

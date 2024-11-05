@@ -528,7 +528,7 @@ def main(data_directory: Path, tissue_type:str, inference_mode:str, output_direc
         print('Mask min,max values before thresholding', np.min(pred_mask), np.max(pred_mask))
         print('Mask unique values after thresholding', np.unique(pred_mask_thr))
         
-        OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{path_stem}_mask.ome.tif')
+        OmeTiffWriter.save(pred_mask_thr, f'{output_dir}/{path_stem}.segmentations.ome.tiff')
         
         json_mask = mask2json(pred_mask_thr, organ)        
         with open(f'{output_dir}/{path_stem}_mask.json', "w") as f:

@@ -1,9 +1,6 @@
 FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
 ENV DEBIAN_FRONTEND=noninteractive
 
-## System packages
-# I'm used to using `apt` but it complains that it doesn't have a stable
-#   command-line interface, so let's use `apt-get` instead
 RUN apt-get update \
  && apt-get -y install \
     libblas-dev \
@@ -21,7 +18,7 @@ RUN apt-get update \
  && rm -rf /var/cache/apt/*
 
 COPY docker/requirements.txt .
-RUN pip3 install --upgrade pip
+RUN pip3 install --upgrade pip setuptools wheel
 RUN pip install torch==1.13.1+cu116 torchvision==0.14.1+cu116 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu116
 RUN pip3 install -r requirements.txt \
  && rm -rf /root/.cache/pip
@@ -29,11 +26,10 @@ RUN pip3 install -r requirements.txt \
 RUN mkdir /root/.ssh
 
 COPY bin /opt
-#COPY weights /opt/weights
 WORKDIR /opt
-# RUN mkdir weights \
-#  && wget -O weights.zip https://zenodo.org/record/7996245/files/trained_model_weights.zip?download=1 \
-#  && unzip weights.zip -d weights \
-#  && mv weights/trained_model_weights/* weights/ \
-#  && rm -r weights/trained_model_weights \
-#  && rm weights.zip
+RUN mkdir weights \
+ && wget -O weights.zip https://zenodo.org/record/7996245/files/trained_model_weights.zip?download=1 \
+ && unzip weights.zip -d weights \
+ && mv weights/trained_model_weights/* weights/ \
+ && rm -r weights/trained_model_weights \
+ && rm weights.zip
