@@ -36,12 +36,12 @@ class LayerNorm2d(nn.Module):
 		self.weight = nn.Parameter(torch.ones(dim))
 		self.bias = nn.Parameter(torch.zeros(dim))
 		self.eps = eps
-	
+
 	def forward(self, x):
 		batch_size,C,H,W = x.shape
 		#assert C==self.dim, 'C=%d, self.dim=%d'%(C,self.dim)
 		#print('C=%d, self.dim=%d'%(C,self.dim))
-		
+
 		u = x.mean(1, keepdim=True)
 		s = (x - u).pow(2).mean(1, keepdim=True)
 		x = (x - u) / torch.sqrt(s + self.eps)
@@ -70,7 +70,7 @@ class Mlp(nn.Module):
 		self.act = act_layer()
 		self.fc2 = nn.Linear(hidden_features, out_features)
 		self.drop = nn.Dropout(drop)
-	
+
 	def forward(self, x):
 		x = self.fc1(x)
 		x = self.act(x)
@@ -93,7 +93,7 @@ class ConvRelPosEnc(nn.Module):
 					   It will apply different window size to the attention head splits.
 		"""
 		super().__init__()
-		
+
 		if isinstance(window, int):
 			window = {window: h}                                                         # Set the same window size for all attention heads.
 			self.window = window
@@ -101,7 +101,7 @@ class ConvRelPosEnc(nn.Module):
 			self.window = window
 		else:
 			raise ValueError()
-		
+
 		self.conv_list = nn.ModuleList()
 		self.head_splits = []
 		for cur_window, cur_head_split in window.items():
@@ -116,26 +116,26 @@ class ConvRelPosEnc(nn.Module):
 			self.conv_list.append(cur_conv)
 			self.head_splits.append(cur_head_split)
 		self.channel_splits = [x*Ch for x in self.head_splits]
-	
+
 	def forward(self, q, v, size):
 		B, h, N, Ch = q.shape
 		H, W = size
 		assert N == 1 + H * W
-		
+
 		# Convolutional relative position encoding.
 		q_img = q[:,:,1:,:]                                                              # Shape: [B, h, H*W, Ch].
 		v_img = v[:,:,1:,:]                                                              # Shape: [B, h, H*W, Ch].
-		
+
 		v_img = rearrange(v_img, 'B h (H W) Ch -> B (h Ch) H W', H=H, W=W)               # Shape: [B, h, H*W, Ch] -> [B, h*Ch, H, W].
 		v_img_list = torch.split(v_img, self.channel_splits, dim=1)                      # Split according to channels.
 		conv_v_img_list = [conv(x) for conv, x in zip(self.conv_list, v_img_list)]
 		conv_v_img = torch.cat(conv_v_img_list, dim=1)
 		conv_v_img = rearrange(conv_v_img, 'B (h Ch) H W -> B h (H W) Ch', h=h)          # Shape: [B, h*Ch, H, W] -> [B, h, H*W, Ch].
-		
+
 		EV_hat_img = q_img * conv_v_img
 		zero = torch.zeros((B, h, 1, Ch), dtype=q.dtype, layout=q.layout, device=q.device)
 		EV_hat = torch.cat((zero, EV_hat_img), dim=2)                                # Shape: [B, h, N, Ch].
-		
+
 		return EV_hat
 
 
@@ -146,38 +146,38 @@ class FactorAtt_ConvRelPosEnc(nn.Module):
 		self.num_heads = num_heads
 		head_dim = dim // num_heads
 		self.scale = qk_scale or head_dim ** -0.5
-		
+
 		self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
 		self.attn_drop = nn.Dropout(attn_drop)                                           # Note: attn_drop is actually not used.
 		self.proj = nn.Linear(dim, dim)
 		self.proj_drop = nn.Dropout(proj_drop)
-		
+
 		# Shared convolutional relative position encoding.
 		self.crpe = shared_crpe
-	
+
 	def forward(self, x, size):
 		B, N, C = x.shape
-		
+
 		# Generate Q, K, V.
 		qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)  # Shape: [3, B, h, N, Ch].
 		q, k, v = qkv[0], qkv[1], qkv[2]                                                 # Shape: [B, h, N, Ch].
-		
+
 		# Factorized attention.
 		k_softmax = k.softmax(dim=2)                                                     # Softmax on dim N.
 		k_softmax_T_dot_v = einsum('b h n k, b h n v -> b h k v', k_softmax, v)          # Shape: [B, h, Ch, Ch].
 		factor_att        = einsum('b h n k, b h k v -> b h n v', q, k_softmax_T_dot_v)  # Shape: [B, h, N, Ch].
-		
+
 		# Convolutional relative position encoding.
 		crpe = self.crpe(q, v, size=size)                                                # Shape: [B, h, N, Ch].
-		
+
 		# Merge and reshape.
 		x = self.scale * factor_att + crpe
 		x = x.transpose(1, 2).reshape(B, N, C)                                           # Shape: [B, h, N, Ch] -> [B, N, h, Ch] -> [B, N, C].
-		
+
 		# Output projection.
 		x = self.proj(x)
 		x = self.proj_drop(x)
-		
+
 		return x                                                                         # Shape: [B, N, C].
 
 
@@ -188,23 +188,23 @@ class ConvPosEnc(nn.Module):
 	def __init__(self, dim, k=3):
 		super(ConvPosEnc, self).__init__()
 		self.proj = nn.Conv2d(dim, dim, k, 1, k//2, groups=dim)
-	
+
 	def forward(self, x, size):
 		B, N, C = x.shape
 		H, W = size
 		assert N == 1 + H * W
-		
+
 		# Extract CLS token and image tokens.
 		cls_token, img_tokens = x[:, :1], x[:, 1:]                                       # Shape: [B, 1, C], [B, H*W, C].
-		
+
 		# Depthwise convolution.
 		feat = img_tokens.transpose(1, 2).view(B, C, H, W)
 		x = self.proj(feat) + feat
 		x = x.flatten(2).transpose(1, 2)
-		
+
 		# Combine with CLS token.
 		x = torch.cat((cls_token, x), dim=1)
-		
+
 		return x
 
 
@@ -215,33 +215,33 @@ class SerialBlock(nn.Module):
 	             drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,
 	             shared_cpe=None, shared_crpe=None):
 		super().__init__()
-		
+
 		# Conv-Attention.
 		self.cpe = shared_cpe
-		
+
 		self.norm1 = norm_layer(dim)
 		self.factoratt_crpe = FactorAtt_ConvRelPosEnc(
 			dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
 			shared_crpe=shared_crpe)
 		self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-		
+
 		# MLP.
 		self.norm2 = norm_layer(dim)
 		mlp_hidden_dim = int(dim * mlp_ratio)
 		self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-	
+
 	def forward(self, x, size):
 		# Conv-Attention.
 		x = self.cpe(x, size)                  # Apply convolutional position encoding.
 		cur = self.norm1(x)
 		cur = self.factoratt_crpe(cur, size)   # Apply factorized attention and convolutional relative position encoding.
 		x = x + self.drop_path(cur)
-		
+
 		# MLP.
 		cur = self.norm2(x)
 		cur = self.mlp(cur)
 		x = x + self.drop_path(cur)
-		
+
 		return x
 
 
@@ -251,10 +251,10 @@ class ParallelBlock(nn.Module):
 	             drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,
 	             shared_cpes=None, shared_crpes=None):
 		super().__init__()
-		
+
 		# Conv-Attention.
 		self.cpes = shared_cpes
-		
+
 		self.norm12 = norm_layer(dims[1])
 		self.norm13 = norm_layer(dims[2])
 		self.norm14 = norm_layer(dims[3])
@@ -271,7 +271,7 @@ class ParallelBlock(nn.Module):
 			shared_crpe=shared_crpes[3]
 		)
 		self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-		
+
 		# MLP.
 		self.norm22 = norm_layer(dims[1])
 		self.norm23 = norm_layer(dims[2])
@@ -280,40 +280,40 @@ class ParallelBlock(nn.Module):
 		assert mlp_ratios[1] == mlp_ratios[2] == mlp_ratios[3]
 		mlp_hidden_dim = int(dims[1] * mlp_ratios[1])
 		self.mlp2 = self.mlp3 = self.mlp4 = Mlp(in_features=dims[1], hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
-	
+
 	def upsample(self, x, output_size, size):
 		""" Feature map up-sampling. """
 		return self.interpolate(x, output_size=output_size, size=size)
-	
+
 	def downsample(self, x, output_size, size):
 		""" Feature map down-sampling. """
 		return self.interpolate(x, output_size=output_size, size=size)
-	
+
 	def interpolate(self, x, output_size, size):
 		""" Feature map interpolation. """
 		B, N, C = x.shape
 		H, W = size
 		assert N == 1 + H * W
-		
+
 		cls_token  = x[:, :1, :]
 		img_tokens = x[:, 1:, :]
-		
+
 		img_tokens = img_tokens.transpose(1, 2).reshape(B, C, H, W)
 		img_tokens = F.interpolate(img_tokens, size=output_size, mode='bilinear')  # FIXME: May have alignment issue.
 		img_tokens = img_tokens.reshape(B, C, -1).transpose(1, 2)
-		
+
 		out = torch.cat((cls_token, img_tokens), dim=1)
-		
+
 		return out
-	
+
 	def forward(self, x1, x2, x3, x4, sizes):
 		_, (H2, W2), (H3, W3), (H4, W4) = sizes
-		
+
 		# Conv-Attention.
 		x2 = self.cpes[1](x2, size=(H2, W2))  # Note: x1 is ignored.
 		x3 = self.cpes[2](x3, size=(H3, W3))
 		x4 = self.cpes[3](x4, size=(H4, W4))
-		
+
 		cur2 = self.norm12(x2)
 		cur3 = self.norm13(x3)
 		cur4 = self.norm14(x4)
@@ -332,7 +332,7 @@ class ParallelBlock(nn.Module):
 		x2 = x2 + self.drop_path(cur2)
 		x3 = x3 + self.drop_path(cur3)
 		x4 = x4 + self.drop_path(cur4)
-		
+
 		# MLP.
 		cur2 = self.norm22(x2)
 		cur3 = self.norm23(x3)
@@ -343,7 +343,7 @@ class ParallelBlock(nn.Module):
 		x2 = x2 + self.drop_path(cur2)
 		x3 = x3 + self.drop_path(cur3)
 		x4 = x4 + self.drop_path(cur4)
-		
+
 		return x1, x2, x3, x4
 
 
@@ -352,18 +352,18 @@ class PatchEmbed(nn.Module):
 	def __init__(self, patch_size=16, in_chans=3, embed_dim=768):
 		super().__init__()
 		patch_size = to_2tuple(patch_size)
-		
+
 		self.patch_size = patch_size
 		self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
 		self.norm = nn.LayerNorm(embed_dim)
-	
+
 	def forward(self, x):
 		_, _, H, W = x.shape
 		out_H, out_W = H // self.patch_size[0], W // self.patch_size[1]
-		
+
 		x = self.proj(x).flatten(2).transpose(1, 2)
 		out = self.norm(x)
-		
+
 		return out, (out_H, out_W)
 
 
@@ -386,34 +386,34 @@ class CoaT(nn.Module):
 		self.embed_dims   = embed_dims
 		#self.out_features = out_features
 		#self.num_classes  = num_classes
-		
+
 		# Patch embeddings.
 		self.patch_embed1 = PatchEmbed(patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dims[0])
 		self.patch_embed2 = PatchEmbed(patch_size=2, in_chans=embed_dims[0], embed_dim=embed_dims[1])
 		self.patch_embed3 = PatchEmbed(patch_size=2, in_chans=embed_dims[1], embed_dim=embed_dims[2])
 		self.patch_embed4 = PatchEmbed(patch_size=2, in_chans=embed_dims[2], embed_dim=embed_dims[3])
-		
+
 		# Class tokens.
 		self.cls_token1 = nn.Parameter(torch.zeros(1, 1, embed_dims[0]))
 		self.cls_token2 = nn.Parameter(torch.zeros(1, 1, embed_dims[1]))
 		self.cls_token3 = nn.Parameter(torch.zeros(1, 1, embed_dims[2]))
 		self.cls_token4 = nn.Parameter(torch.zeros(1, 1, embed_dims[3]))
-		
+
 		# Convolutional position encodings.
 		self.cpe1 = ConvPosEnc(dim=embed_dims[0], k=3)
 		self.cpe2 = ConvPosEnc(dim=embed_dims[1], k=3)
 		self.cpe3 = ConvPosEnc(dim=embed_dims[2], k=3)
 		self.cpe4 = ConvPosEnc(dim=embed_dims[3], k=3)
-		
+
 		# Convolutional relative position encodings.
 		self.crpe1 = ConvRelPosEnc(Ch=embed_dims[0] // num_heads, h=num_heads, window=crpe_window)
 		self.crpe2 = ConvRelPosEnc(Ch=embed_dims[1] // num_heads, h=num_heads, window=crpe_window)
 		self.crpe3 = ConvRelPosEnc(Ch=embed_dims[2] // num_heads, h=num_heads, window=crpe_window)
 		self.crpe4 = ConvRelPosEnc(Ch=embed_dims[3] // num_heads, h=num_heads, window=crpe_window)
-		
+
 		# Enable stochastic depth.
 		dpr = drop_path_rate
-		
+
 		# Serial blocks 1.
 		self.serial_blocks1 = nn.ModuleList([
 			SerialBlock(
@@ -423,7 +423,7 @@ class CoaT(nn.Module):
 			)
 			for _ in range(serial_depths[0])]
 		)
-		
+
 		# Serial blocks 2.
 		self.serial_blocks2 = nn.ModuleList([
 			SerialBlock(
@@ -433,7 +433,7 @@ class CoaT(nn.Module):
 			)
 			for _ in range(serial_depths[1])]
 		)
-		
+
 		# Serial blocks 3.
 		self.serial_blocks3 = nn.ModuleList([
 			SerialBlock(
@@ -443,7 +443,7 @@ class CoaT(nn.Module):
 			)
 			for _ in range(serial_depths[2])]
 		)
-		
+
 		# Serial blocks 4.
 		self.serial_blocks4 = nn.ModuleList([
 			SerialBlock(
@@ -453,7 +453,7 @@ class CoaT(nn.Module):
 			)
 			for _ in range(serial_depths[3])]
 		)
-		
+
 		# Parallel blocks.
 		self.parallel_depth = parallel_depth
 		if self.parallel_depth > 0:
@@ -466,7 +466,7 @@ class CoaT(nn.Module):
 				)
 				for _ in range(parallel_depth)]
 			)
-		
+
 		# Classification head(s).
 		# if not self.return_interm_layers:
 		# 	self.norm1 = norm_layer(embed_dims[0])
@@ -485,14 +485,14 @@ class CoaT(nn.Module):
 		self.out_norm = nn.ModuleList(
 			[ out_norm(embed_dims[i]) for i in range(4)]
 		)
-		
+
 		# Initialize weights.
 		trunc_normal_(self.cls_token1, std=.02)
 		trunc_normal_(self.cls_token2, std=.02)
 		trunc_normal_(self.cls_token3, std=.02)
 		trunc_normal_(self.cls_token4, std=.02)
 		self.apply(self._init_weights)
-	
+
 	def _init_weights(self, m):
 		if isinstance(m, nn.Linear):
 			trunc_normal_(m.weight, std=.02)
@@ -501,31 +501,31 @@ class CoaT(nn.Module):
 		elif isinstance(m, nn.LayerNorm):
 			nn.init.constant_(m.bias, 0)
 			nn.init.constant_(m.weight, 1.0)
-	
+
 	@torch.jit.ignore
 	def no_weight_decay(self):
 		return {'cls_token1', 'cls_token2', 'cls_token3', 'cls_token4'}
-	
+
 	# def get_classifier(self):
 	# 	return self.head
-	
+
 	# def reset_classifier(self, num_classes, global_pool=''):
 	# 	self.num_classes = num_classes
 	# 	self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-	
+
 	def insert_cls(self, x, cls_token):
 		""" Insert CLS token. """
 		cls_tokens = cls_token.expand(x.shape[0], -1, -1)
 		x = torch.cat((cls_tokens, x), dim=1)
 		return x
-	
+
 	def remove_cls(self, x):
 		""" Remove CLS token. """
 		return x[:, 1:, :]
-	
+
 	def forward(self, x0):
 		B = x0.shape[0]
-		
+
 		# Serial blocks 1.
 		x1, (H1, W1) = self.patch_embed1(x0)
 		cls = self.cls_token1#torch.zeros_like(self.cls_token1)#self.cls_token1
@@ -534,7 +534,7 @@ class CoaT(nn.Module):
 			x1 = blk(x1, size=(H1, W1))
 		x1_nocls = self.remove_cls(x1)
 		x1_nocls = x1_nocls.reshape(B, H1, W1, -1).permute(0, 3, 1, 2).contiguous()
-		
+
 		# Serial blocks 2.
 		x2, (H2, W2) = self.patch_embed2(x1_nocls)
 		cls = self.cls_token2# torch.zeros_like(self.cls_token2)#self.cls_token2#
@@ -543,7 +543,7 @@ class CoaT(nn.Module):
 			x2 = blk(x2, size=(H2, W2))
 		x2_nocls = self.remove_cls(x2)
 		x2_nocls = x2_nocls.reshape(B, H2, W2, -1).permute(0, 3, 1, 2).contiguous()
-		
+
 		# Serial blocks 3.
 		x3, (H3, W3) = self.patch_embed3(x2_nocls)
 		cls = self.cls_token3#torch.zeros_like(self.cls_token3)# self.cls_token3
@@ -552,7 +552,7 @@ class CoaT(nn.Module):
 			x3 = blk(x3, size=(H3, W3))
 		x3_nocls = self.remove_cls(x3)
 		x3_nocls = x3_nocls.reshape(B, H3, W3, -1).permute(0, 3, 1, 2).contiguous()
-		
+
 		# Serial blocks 4.
 		x4, (H4, W4) = self.patch_embed4(x3_nocls)
 		cls = self.cls_token4#torch.zeros_like(self.cls_token4)#self.cls_token4
@@ -561,7 +561,7 @@ class CoaT(nn.Module):
 			x4 = blk(x4, size=(H4, W4))
 		x4_nocls = self.remove_cls(x4)
 		x4_nocls = x4_nocls.reshape(B, H4, W4, -1).permute(0, 3, 1, 2).contiguous()
-		
+
 		# Only serial blocks: Early return. ------------------------
 		if self.parallel_depth == 0:
 			x1_nocls = self.out_norm[0](x1_nocls)
@@ -569,33 +569,33 @@ class CoaT(nn.Module):
 			x3_nocls = self.out_norm[2](x3_nocls)
 			x4_nocls = self.out_norm[3](x4_nocls)
 			return [x1_nocls,x2_nocls,x3_nocls,x4_nocls]
-		 
-	  
+
+
 		# Parallel blocks. ------------------------------------------
 		if self.parallel_depth > 0:
-			
+
 			for blk in self.parallel_blocks:
 				x1, x2, x3, x4 = blk(x1, x2, x3, x4, sizes=[(H1, W1), (H2, W2), (H3, W3), (H4, W4)])
- 
+
 			x1_nocls = self.remove_cls(x1)
 			x1_nocls = x1_nocls.reshape(B, H1, W1, -1).permute(0, 3, 1, 2).contiguous()
 			x1_nocls = self.out_norm[0](x1_nocls)
-		 
+
 			x2_nocls = self.remove_cls(x2)
 			x2_nocls = x2_nocls.reshape(B, H2, W2, -1).permute(0, 3, 1, 2).contiguous()
 			x2_nocls = self.out_norm[1](x2_nocls)
-			
+
 			x3_nocls = self.remove_cls(x3)
 			x3_nocls = x3_nocls.reshape(B, H3, W3, -1).permute(0, 3, 1, 2).contiguous()
 			x3_nocls = self.out_norm[2](x3_nocls)
- 
+
 			x4_nocls = self.remove_cls(x4)
 			x4_nocls = x4_nocls.reshape(B, H4, W4, -1).permute(0, 3, 1, 2).contiguous()
 			x4_nocls = self.out_norm[3](x4_nocls)
-			
+
 			return [x1_nocls,x2_nocls,x3_nocls,x4_nocls]
-		
-		
+
+
 		# else:
 		# 	x2 = self.norm2(x2)
 		# 	x3 = self.norm3(x3)
@@ -606,8 +606,8 @@ class CoaT(nn.Module):
 		# 	merged_cls = torch.cat((x2_cls, x3_cls, x4_cls), dim=1)       # Shape: [B, 3, C].
 		# 	merged_cls = self.aggregate(merged_cls).squeeze(dim=1)        # Shape: [B, C].
 		# 	return merged_cls
-	
- 
+
+
 
 
 
@@ -649,7 +649,7 @@ class coat_lite_small (CoaT):
 		super(coat_lite_small, self).__init__(
 	        patch_size=4, embed_dims=[64, 128, 320, 512], serial_depths=[3, 4, 6, 3],
 			parallel_depth=0, num_heads=8, mlp_ratios=[8, 8, 4, 4], **kwargs)
-	 
+
 
 #@register_model
 class coat_lite_medium (CoaT):
@@ -661,7 +661,7 @@ class coat_lite_medium (CoaT):
 		    pretrain ='coat_lite_medium_384x384_f9129688.pth',
 			**kwargs)
 
- 
+
 class coat_parallel_small (CoaT):
 	def __init__(self, **kwargs):
 		super(coat_parallel_small, self).__init__(
@@ -670,7 +670,7 @@ class coat_parallel_small (CoaT):
 			parallel_depth=6, num_heads=8, mlp_ratios=[4, 4, 4, 4],
 			pretrain ='coat_small_7479cf9b.pth',
 			**kwargs)
- 
+
 if 0:
 	#net = coat_lite_medium()
 	net = coat_small()
@@ -678,11 +678,11 @@ if 0:
 	x = torch.rand(2,3,800,800)
 	out = net(x)
 	print([f.shape for f in out])
-	
+
 	checkpoint = '/root/share1/data/pretrain_model/' + net.pretrain
 	checkpoint = torch.load(checkpoint, map_location=lambda storage, loc: storage)
 	print(list(checkpoint.keys()))
 	#['epoch', 'arch', 'state_dict', 'optimizer', 'version', 'args', 'amp', 'metric']
 	state_dict = checkpoint['model']
 	print( net.load_state_dict(state_dict,strict=False) )
-	
+
