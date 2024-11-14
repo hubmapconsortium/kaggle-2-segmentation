@@ -4,7 +4,7 @@ label: segments each image in the directory for FTUs
 
 requirements:
   DockerRequirement:
-    dockerPull: hubmap/kaggle-2-segmentation
+    dockerPull: hubmap/kaggle-2-segmentation:1.0.2
   DockerGpuRequirement: {}
 
 baseCommand: /opt/inference.py
