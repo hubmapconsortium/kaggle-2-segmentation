@@ -6,6 +6,10 @@ requirements:
   DockerRequirement:
     dockerPull: hubmap/kaggle-2-segmentation
   DockerGpuRequirement: {}
+  EnvVarRequirement:
+    envDef:
+      CUDA_VISIBLE_DEVICES: "0"
+
 
 baseCommand: /opt/inference.py
 
