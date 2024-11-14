@@ -10,23 +10,19 @@ requirements:
 baseCommand: /opt/inference.py
 
 inputs:
-  enable_manhole:
-    label: "Whether to enable remote debugging via 'manhole'"
-    type: boolean?
-    inputBinding:
-      position: 0
-
   data_directory:
     type: Directory
     doc: Path to processed dataset directory
     inputBinding:
-      position: 1
+      position: 0
+      prefix: "--data_directory"
 
   tissue_type:
     label: "Name of organ that sample is derived from"
     type: string
     inputBinding:
-      position: 2
+      position: 1
+      prefix: "--tissue_type"
 
 
 outputs:
