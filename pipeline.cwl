@@ -32,8 +32,6 @@ steps:
     in:
       - id: data_directory
         source: data_directory
-      - id: enable_manhole
-        source: enable_manhole
       - id: tissue_type
         source: tissue_type
 
