@@ -3,3 +3,5 @@ data/
 output/
 weights/
 Mask_conversion.ipynb
+*.segmentations.ome.tiff
+*.json
