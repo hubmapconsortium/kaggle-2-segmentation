@@ -18,11 +18,11 @@ inputs:
       prefix: "--data_directory"
 
   tissue_type:
-    label: "Name of organ that sample is derived from"
+    label: "Code of organ that sample is derived from, e.g. RL, SP"
     type: string
     inputBinding:
       position: 1
-      prefix: "--tissue_type"
+      prefix: "--tissue_code"
 
 
 outputs:

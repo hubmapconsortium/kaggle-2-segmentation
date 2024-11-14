@@ -10,7 +10,7 @@ from argparse import ArgumentParser
 from enum import Enum
 from os import listdir, makedirs, path
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 import cv2
 import cv2 as cv
@@ -35,6 +35,7 @@ cudnn.benchmark = True
 amp_autocast = torch.cuda.amp.autocast
 
 supported_file_types = [".ome.tif", ".tiff", ".tif"]
+weights_dir = Path(__file__).parent
 
 
 class TISSUE_FTU(Enum):
@@ -469,7 +470,8 @@ def load_models(param, inference_mode, config):
             snap_to_load = checkpoint_name.format(fold)
             print("=> loading checkpoint '{}'".format(snap_to_load))
             checkpoint = torch.load(
-                path.join(checkpoint_dir, snap_to_load), map_location="cpu"
+                weights_dir / checkpoint_dir / snap_to_load,
+                map_location="cpu",
             )
             loaded_dict = checkpoint["state_dict"]
             sd = model.state_dict()
@@ -663,7 +665,7 @@ def main(
     tissue_code: str,
     inference_mode: str,
     output_directory: Path,
-    config_file: Path,
+    config_file: Optional[Path],
 ):
     if inference_mode == "fast":
         print("!!!RUNNING IN FAST INFERENCE MODE!!!")
@@ -678,7 +680,7 @@ def main(
     print(f"file template: {file_template}")
 
     if config_file is None:
-        configpath = "config.json"
+        configpath = Path(__file__).parent / "config.json"
         print("Using default config.json")
     else:
         configpath = config_file
@@ -748,18 +750,36 @@ if __name__ == "__main__":
     t0 = timeit.default_timer()
 
     p = ArgumentParser()
-    p.add_argument("--data_directory", type=Path)
-    p.add_argument("--output_directory", type=Path, default=Path())
-    p.add_argument("--tissue_type", type=str, choices=sorted(tissue_code_mapping))
     p.add_argument(
-        "--inference_mode", type=str, choices=["normal", "fast"], default="fast"
+        "--data_directory",
+        type=Path,
     )
-    p.add_argument("--config_file", type=Path, default=None)
+    p.add_argument(
+        "--output_directory",
+        type=Path,
+        default=Path(),
+    )
+    p.add_argument(
+        "--tissue_code",
+        type=str,
+        choices=sorted(tissue_code_mapping),
+    )
+    p.add_argument(
+        "--inference_mode",
+        type=str,
+        choices=["normal", "fast"],
+        default="fast",
+    )
+    p.add_argument(
+        "--config_file",
+        type=Path,
+        default=None,
+    )
     args = p.parse_args()
 
     main(
         data_directory=args.data_directory,
-        tissue_type=args.tissue_type,
+        tissue_code=args.tissue_code,
         inference_mode=args.inference_mode,
         output_directory=args.output_directory,
         config_file=args.config_file,
