@@ -66,6 +66,7 @@ tissue_code_mapping = {
     "LL": TISSUE_FTU.LUNG,
     "RL": TISSUE_FTU.LUNG,
     "SP": TISSUE_FTU.SPLEEN,
+    "PR": TISSUE_FTU.PROSTATE,
 }
 
 
