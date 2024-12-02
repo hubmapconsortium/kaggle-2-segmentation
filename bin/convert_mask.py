@@ -51,7 +51,7 @@ def main(ome_tiffs, tissue_code):
     organ = tissue_code_mapping[tissue_code]
     mask_name = organ.ftu_type
     mask_id = organ.uberon
-    protocol = "dx.doi.org/10.17504/protocols.io.dm6gp35p8vzp/v1"
+    protocol = "https://github.com/hubmapconsortium/kaggle-2-segmentation/"
     ann_tool = "FUSION"
     obj_type = organ.uberon
     an_struct = organ.struct
@@ -88,7 +88,7 @@ def main(ome_tiffs, tissue_code):
             image_data = skimage.measure.label(image_data)
             image_data = np.array(image_data, dtype=np.uint16) #convert to a type we can actually write
             path_stem = Path(ome_tiff).stem
-            tifffile.imwrite(f'{path_stem}.segmentations.ome.tiff', image_data)#, metadata=ome_metadata)
+            tifffile.imwrite(f'{path_stem}.tiff', image_data)
             clusters = skimage.measure.regionprops(image_data)
 
             filename = os.path.basename(ome_tiff)
