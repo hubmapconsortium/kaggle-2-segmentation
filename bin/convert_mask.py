@@ -29,18 +29,19 @@ class TISSUE_FTU(Enum):
         return self.value
 
     KIDNEY = ("kidney", "glomeruli", "UBERON:0000074", "UBERON:0001229")
-    LEFT_LUNG = ("leftlung", "alveoli", "UBERON:0004862", "UBERON:0006525" )
-    RIGHT_LUNG = ("rightlung", "alveoli", "UBERON:0004861", "UBERON:0006526" )
+    LUNG = ("lung", "alveoli", "UBERON:0002299", "UBERON:0006524" )
     LARGE_INTESTINE = ("largeintestine", "crypt", "UBERON:0001984", "UBERON:0001207" )
     SPLEEN = ("spleen", "white pulp", "UBERON:0001959", "UBERON:1000023" )
+    PROSTATE= ("prostate", "glandular acini", "UBERON:0004179", "UBERON:0000428")
 
 tissue_code_mapping = {
     "LI": TISSUE_FTU.LARGE_INTESTINE,
     "LK": TISSUE_FTU.KIDNEY,
     "RK": TISSUE_FTU.KIDNEY,
-    "LL": TISSUE_FTU.LEFT_LUNG,
-    "RL": TISSUE_FTU.RIGHT_LUNG,
+    "LL": TISSUE_FTU.LUNG,
+    "RL": TISSUE_FTU.LUNG,
     "SP": TISSUE_FTU.SPLEEN,
+    "PR": TISSUE_FTU.PROSTATE,
 }
 
 def main(ome_tiffs, tissue_code):
