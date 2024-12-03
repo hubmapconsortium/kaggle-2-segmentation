@@ -20,11 +20,14 @@ inputs:
 outputs:
 
   ome_tiff_files:
-    outputSource: segmentation/ome_tiff_files
+    outputSource: convert/ome_tiff_files
     type: File[]
   json_files:
     outputSource: segmentation/json_files
     type: File[]
+  tsv_file:
+    outputSource: convert/tsv_file
+    type: File
 
 steps:
 
@@ -41,3 +44,17 @@ steps:
 
     run: steps/segmentation.cwl
     label: "Performs FTU segmentation on H&E data"
+
+  - id: convert
+    in:
+      - id: ome_tiff_files
+        source: segmentation/ome_tiff_files
+      - id: tissue_code
+        source: tissue_type
+
+    out:
+      - ome_tiff_files
+      - tsv_file
+
+    run: steps/convert-mask.cwl
+    label: "Harmonizes output with EPIC spec"
