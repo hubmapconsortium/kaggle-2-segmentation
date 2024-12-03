@@ -52,7 +52,7 @@ def main(ome_tiffs, tissue_code):
     mask_name = organ.ftu_type
     mask_id = organ.uberon
     protocol = "https://github.com/hubmapconsortium/kaggle-2-segmentation/"
-    ann_tool = "FUSION"
+    ann_tool = "In-house"
     obj_type = organ.uberon
     an_struct = organ.struct
 
