@@ -4,7 +4,7 @@ label: converts ometif files to tsv mask
 
 requirements:
   DockerRequirement:
-    dockerPull: hubmap/kaggle-2-segmentation
+    dockerPull: hubmap/kaggle-2-segmentation:1.1
   DockerGpuRequirement: {}
 
 baseCommand: /opt/convert_mask.py
