@@ -2,16 +2,16 @@
     {
         "pattern": ".*\\.ome\\.tiff",
         "description": "FTU segmentation masks in ome tiff format",
-        "edam_ontology_term": "EDAM_1.24.format_3727",
+        "edam_ontology_term": "EDAM_1.24.format_3727"
     },
     {
         "pattern": ".*\\.json",
         "description": "FTU segmentation masks in json form",
-        "edam_ontology_term": "EDAM_1.24.format_3464",
+        "edam_ontology_term": "EDAM_1.24.format_3464"
     },
     {
         "pattern": ".*\\.tsv",
         "description": "FTU segmentation masks in tsv form",
-        "edam_ontology_term": "EDAM_1.24.format_3475",
-    },
+        "edam_ontology_term": "EDAM_1.24.format_3475"
+    }
 ]
